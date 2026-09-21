@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AppShell } from '@/components/app-shell';
 import { OwnerStagePreview } from '@/features/sell-plans/owner-stage-preview';
+import { PlanFact } from '@/features/sell-plans/plan-fact';
 import { readPublicSellPlan } from '@/server/plans';
 
 export const dynamic = 'force-dynamic';
@@ -72,14 +73,5 @@ export default async function SellPlanDetailPage({
         </div>
       </article>
     </AppShell>
-  );
-}
-
-function PlanFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-1 border-b border-line-subtle pb-3">
-      <dt className="text-text-tertiary">{label}</dt>
-      <dd className="break-all font-mono text-text-primary">{value}</dd>
-    </div>
   );
 }
