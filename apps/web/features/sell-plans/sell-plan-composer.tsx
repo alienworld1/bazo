@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useConnectedWallet } from '@solana/kit-plugin-wallet/react';
@@ -24,6 +23,10 @@ import {
 import { solanaClient } from '@/components/solana-client';
 import { StageDraftCard } from './stage-draft-card';
 import { StageEditor } from './stage-editor';
+import { AmountControl } from './amount-control';
+import { DisconnectedSellPlanState } from './disconnected-sell-plan-state';
+import { EmptySellPlanState } from './empty-sell-plan-state';
+import { PreparedSellPlanReview } from './prepared-sell-plan-review';
 import type {
   DraftStage,
   LoadedHolding,
@@ -213,7 +216,7 @@ export function SellPlanComposer({
   };
 
   if (!connected) {
-    return <DisconnectedState />;
+    return <DisconnectedSellPlanState />;
   }
   if (loading || !holding) {
     return <p className="text-sm text-text-secondary">Checking your position…</p>;
@@ -229,10 +232,10 @@ export function SellPlanComposer({
     );
   }
   if (holding.rawAmount === '0') {
-    return <NoBalanceState />;
+    return <EmptySellPlanState />;
   }
   if (prepared) {
-    return <PreparedReview prepared={prepared} onBack={() => setPrepared(undefined)} onSeal={() => void sealAndFund()} status={transactionStatus} error={transactionError} />;
+    return <PreparedSellPlanReview prepared={prepared} onBack={() => setPrepared(undefined)} onSeal={() => void sealAndFund()} status={transactionStatus} error={transactionError} />;
   }
 
   return (
@@ -328,14 +331,6 @@ export function SellPlanComposer({
   );
 }
 
-function AmountControl({ holding, inputMode, committedInput, onModeChange, onInputChange, committedRawAmount }: { holding: LoadedHolding; inputMode: 'percentage' | 'displayAmount'; committedInput: string; onModeChange: (mode: 'percentage' | 'displayAmount') => void; onInputChange: (value: string) => void; committedRawAmount: bigint | undefined }) {
-  return <section className="border-y border-line-default py-6"><h2 className="text-lg font-medium text-text-primary">Amount to commit</h2><p className="mt-2 text-sm text-text-secondary">Available: {holding.displayAmount} {holding.displaySymbol}</p><div className="mt-5 flex gap-4 text-sm"><button type="button" onClick={() => onModeChange('percentage')} aria-pressed={inputMode === 'percentage'} className="min-h-11 text-text-primary underline">Use percentage</button><button type="button" onClick={() => onModeChange('displayAmount')} aria-pressed={inputMode === 'displayAmount'} className="min-h-11 text-text-primary underline">Use share amount</button></div><label className="mt-4 block text-sm text-text-secondary" htmlFor="committed-amount">{inputMode === 'percentage' ? 'Percentage of holding' : `Share amount (${holding.displaySymbol})`}</label><input id="committed-amount" inputMode="decimal" value={committedInput} onChange={event => onInputChange(event.target.value)} className="mt-2 min-h-11 w-full max-w-sm border border-line-default bg-surface-1 px-3 font-mono text-sm text-text-primary" />{committedRawAmount !== undefined ? <p className="mt-3 text-sm text-text-secondary">This amount resolves to {formatDisplayAmount(committedRawAmount.toString(), holding.decimals, holding.multiplierContext ?? '1')} {holding.displaySymbol} in onchain units.</p> : null}</section>;
-}
-
-function PreparedReview({ prepared, onBack, onSeal, status, error }: { prepared: PreparedSellPlan; onBack: () => void; onSeal: () => void; status?: string; error?: string }) { const busy = Boolean(status); return <section className="mx-auto max-w-3xl border-y border-line-default py-8"><p className="font-mono text-xs text-text-tertiary">REVIEW SELL PLAN</p><h1 className="mt-3 text-3xl font-medium text-text-primary">Your future Stages are ready to seal</h1><p className="mt-4 text-text-secondary">Your future Stages are committed before funding. They stay sealed from public order flow until each Stage can be fully sold.</p><dl className="mt-8 space-y-4 text-sm"><ReviewFact label="Devnet" value="Devnet"/><ReviewFact label="Total committed" value={`${prepared.displayAmount} shares (${prepared.rawAmount} raw)`}/><ReviewFact label="Plan address" value={prepared.plan}/><ReviewFact label="Stock vault" value={prepared.stockVault}/><ReviewFact label="Proceeds vault" value={prepared.proceedsVault}/><ReviewFact label="Commitment fingerprint" value={`${prepared.headCommitment.slice(0, 12)}…${prepared.headCommitment.slice(-8)}`}/><ReviewFact label="End date" value={prepared.expiresAt}/></dl><p className="mt-8 text-sm text-text-secondary">All stock for every Stage moves into this Plan&apos;s program-controlled vault. Once stock is sold through this Plan, Bazo never uses the proceeds to buy it back.</p>{status ? <p className="mt-4 text-sm text-text-secondary" aria-live="polite">{status}</p> : null}{error ? <p className="mt-4 text-sm text-warning" role="alert">{error}</p> : null}<div className="mt-6 flex gap-3"><button type="button" onClick={onSeal} disabled={busy} className="min-h-11 border border-line-strong bg-surface-3 px-4 text-sm text-text-primary disabled:text-text-disabled">Seal and fund</button><button type="button" onClick={onBack} disabled={busy} className="min-h-11 border border-line-default px-4 text-sm text-text-primary disabled:text-text-disabled">Back to edit</button></div></section>; }
-function ReviewFact({ label, value }: { label: string; value: string }) { return <div className="flex flex-col gap-1 border-b border-line-subtle pb-3"><dt className="text-text-tertiary">{label}</dt><dd className="break-all font-mono text-text-primary">{value}</dd></div>; }
-function DisconnectedState() { return <section className="mx-auto max-w-2xl border-y border-line-default py-8"><h1 className="text-2xl font-medium text-text-primary">Connect a Solana wallet to create a Sell Plan.</h1><Link href="/portfolio" className="mt-5 inline-flex min-h-11 items-center text-text-primary underline">Back to portfolio</Link></section>; }
-function NoBalanceState() { return <section className="mx-auto max-w-2xl border-y border-line-default py-8"><h1 className="text-2xl font-medium text-text-primary">There isn&apos;t any supported stock available to commit from this wallet.</h1><Link href="/portfolio" className="mt-5 inline-flex min-h-11 items-center text-text-primary underline">Back to portfolio</Link></section>; }
 function createDefaultStages(market: SellPlanMarket): DraftStage[] { const session = market.allowedSessions.includes('regular') ? 'regular' : market.allowedSessions[0]; return defaultPremiums.map((minPremiumBps, index) => ({ id: `stage-${index + 1}`, allocationBps: 2_500, minPremiumBps, allowedSessions: session ? [session] : [] })); }
 function parsePercentageBasisPoints(value: string): number { if (!/^\d{1,3}(\.\d{1,2})?$/.test(value)) throw new Error('invalid percentage'); const [whole, fraction = ''] = value.split('.'); const result = Number(whole) * 100 + Number(fraction.padEnd(2, '0')); if (result <= 0 || result > 10_000) throw new Error('invalid percentage'); return result; }
 function sessionMask(sessions: readonly string[]): number { return sessions.reduce((mask, session) => mask | ({ regular: 1, preMarket: 2, postMarket: 4, overNight: 8 }[session] ?? 0), 0); }
