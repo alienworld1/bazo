@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AppShell } from '@/components/app-shell';
+import { OwnerStagePreview } from '@/features/sell-plans/owner-stage-preview';
 import { readPublicSellPlan } from '@/server/plans';
 
 export const dynamic = 'force-dynamic';
@@ -46,6 +47,7 @@ export default async function SellPlanDetailPage({
           <PlanFact label="Created" value={plan.createdAt} />
           <PlanFact label="Plan ends" value={plan.expiresAt} />
         </dl>
+        <OwnerStagePreview plan={plan.address} owner={plan.owner} />
         <details className="mt-8 border-t border-line-default pt-5 text-sm">
           <summary className="cursor-pointer text-text-primary">
             View technical details

@@ -27,6 +27,7 @@ import { AmountControl } from './amount-control';
 import { DisconnectedSellPlanState } from './disconnected-sell-plan-state';
 import { EmptySellPlanState } from './empty-sell-plan-state';
 import { PreparedSellPlanReview } from './prepared-sell-plan-review';
+import { rememberPrivatePlan } from './private-plan-memory';
 import type {
   DraftStage,
   LoadedHolding,
@@ -206,6 +207,17 @@ export function SellPlanComposer({
         stockMint: market.stockMint,
       });
       const reconciliation = reconciled ? 'confirmed' : 'mismatch';
+      if (reconciled) {
+        rememberPrivatePlan(prepared.plan, {
+          owner,
+          stages: stages.map((stage, index) => ({
+            index,
+            rawQuantity: allocations?.[index]?.rawQuantity.toString() ?? '0',
+            minPremiumBps: stage.minPremiumBps,
+            allowedSessions: stage.allowedSessions,
+          })),
+        });
+      }
       router.replace(
         `/sell-plans/${prepared.plan}?signature=${signature}&reconciliation=${reconciliation}`,
       );
