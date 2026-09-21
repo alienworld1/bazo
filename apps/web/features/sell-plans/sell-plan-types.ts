@@ -24,6 +24,8 @@ export type DraftStage = {
 };
 
 export type PreparedSellPlan = {
+  marketAddress: string;
+  planNonce: string;
   plan: string;
   stockVault: string;
   proceedsVault: string;
@@ -31,6 +33,8 @@ export type PreparedSellPlan = {
   rawAmount: string;
   displayAmount: string;
   expiresAt: string;
+  expiresAtUnix: string;
+  headCommitmentBytes: Uint8Array;
 };
 
 export type LoadedHolding = SupportedHolding;
