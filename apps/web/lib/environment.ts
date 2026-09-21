@@ -14,7 +14,7 @@ const environmentSchema = z.object({
   BAZO_QUOTE_SYMBOL: z.string().min(1),
   BAZO_TOKEN_DECIMALS: z.coerce.number().int().min(0).max(255),
   BAZO_SUPPORTED_EXTENSIONS: z.string(),
-  BAZO_PYTH_FEED_ID: z.string().min(1),
+  BAZO_PYTH_FEED_ID: z.string().regex(/^[1-9]\d*$/),
   BAZO_ALLOWED_SESSIONS: z.string().min(1),
   BAZO_MAX_REFERENCE_AGE_SECONDS: z.coerce.number().int().positive(),
   BAZO_MIN_PUBLISHER_COUNT: z.coerce.number().int().positive(),

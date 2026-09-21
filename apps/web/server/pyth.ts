@@ -40,7 +40,7 @@ export async function readReference(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          priceFeedIds: [market.pythFeedId],
+          priceFeedIds: [Number(market.pythFeedId)],
           properties: ['price'],
           formats: ['solana'],
           channel: 'fixed_rate@1000ms',

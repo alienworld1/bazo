@@ -33,4 +33,10 @@ describe('server environment', () => {
     const { PYTH_API_KEY: _key, ...withoutPythKey } = environment;
     expect(() => parseEnvironment(withoutPythKey)).toThrow('PYTH_API_KEY');
   });
+
+  it('accepts only a numeric Pyth Pro feed identifier', () => {
+    expect(() =>
+      parseEnvironment({ ...environment, BAZO_PYTH_FEED_ID: 'not-a-feed-id' }),
+    ).toThrow('BAZO_PYTH_FEED_ID');
+  });
 });
