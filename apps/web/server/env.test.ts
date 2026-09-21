@@ -5,6 +5,7 @@ const environment = {
   SOLANA_NETWORK: 'devnet',
   SOLANA_RPC_URL: 'https://api.devnet.solana.com',
   PYTH_API_KEY: 'key',
+  BAZO_PROGRAM_ID: '6e35GBMnuKLhWCJe3qmzWuJbN9L6XCTMPvAx5hgXLagb',
   BAZO_MARKET_ID: 'acme',
   BAZO_MARKET_SYMBOL: 'ACME',
   BAZO_MARKET_NAME: 'Acme Holdings',

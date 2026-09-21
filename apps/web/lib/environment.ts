@@ -4,6 +4,7 @@ const environmentSchema = z.object({
   SOLANA_NETWORK: z.literal('devnet'),
   SOLANA_RPC_URL: z.url(),
   PYTH_API_KEY: z.string().min(1),
+  BAZO_PROGRAM_ID: z.string().min(32),
   BAZO_MARKET_ID: z.string().regex(/^[a-z0-9-]+$/),
   BAZO_MARKET_SYMBOL: z.string().min(1),
   BAZO_MARKET_NAME: z.string().min(1),
