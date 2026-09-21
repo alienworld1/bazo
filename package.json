@@ -3,6 +3,7 @@
   "private": true,
   "packageManager": "pnpm@12.4.2",
   "devDependencies": {
+    "@anchor-lang/core": "1.2.0",
     "prettier": "3.8.2"
   },
   "scripts": {
@@ -11,6 +12,7 @@
     "typecheck": "pnpm --filter web typecheck",
     "test": "pnpm --filter web test",
     "build": "pnpm --filter web build",
-    "format": "prettier --write"
+    "format": "prettier --write",
+    "setup:devnet": "node scripts/setup-devnet.cjs"
   }
 }

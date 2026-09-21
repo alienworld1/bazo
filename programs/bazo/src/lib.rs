@@ -1,5 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
+use anchor_spl::token_2022::spl_token_2022::{
+    extension::{BaseStateWithExtensions, ExtensionType, StateWithExtensions},
+    state::Mint as Token2022Mint,
+};
 use solana_sha256_hasher::hashv;
 
 declare_id!("6e35GBMnuKLhWCJe3qmzWuJbN9L6XCTMPvAx5hgXLagb");
@@ -15,6 +19,7 @@ pub const PLAN_SEED: &[u8] = b"plan";
 pub const STOCK_VAULT_SEED: &[u8] = b"plan-stock-vault";
 pub const PROCEEDS_VAULT_SEED: &[u8] = b"plan-proceeds-vault";
 pub const TERMINAL_DOMAIN: &[u8] = b"BAZO_STAGE_TERMINAL_V1";
+pub const SCALED_UI_AMOUNT_EXTENSION_POLICY: u32 = 1;
 
 #[program]
 pub mod bazo {
@@ -39,6 +44,11 @@ pub mod bazo {
         require!(args.allowed_session_mask != 0, BazoError::InvalidSessionMask);
         require!(args.max_reference_age_seconds > 0, BazoError::InvalidReferenceAge);
         require!(args.minimum_stage_raw_amount > 0, BazoError::InvalidMinimumStageAmount);
+        require!(
+            args.supported_stock_extensions == SCALED_UI_AMOUNT_EXTENSION_POLICY,
+            BazoError::UnsupportedMintExtensions
+        );
+        validate_stock_mint_extensions(&ctx.accounts.stock_mint.to_account_info())?;
 
         let market = &mut ctx.accounts.market;
         market.version = PLAN_VERSION;
@@ -82,6 +92,11 @@ pub mod bazo {
         require!(market.quote_token_program == ctx.accounts.quote_token_program.key(), BazoError::MarketMismatch);
         require!(args.initial_raw_inventory >= market.minimum_stage_raw_amount, BazoError::InvalidInventoryAmount);
         require!(ctx.accounts.owner_stock_account.amount >= args.initial_raw_inventory, BazoError::InsufficientStock);
+        require!(
+            market.supported_stock_extensions == SCALED_UI_AMOUNT_EXTENSION_POLICY,
+            BazoError::UnsupportedMintExtensions
+        );
+        validate_stock_mint_extensions(&ctx.accounts.stock_mint.to_account_info())?;
 
         let plan = &mut ctx.accounts.plan;
         plan.version = PLAN_VERSION;
@@ -169,9 +184,13 @@ pub struct CreateMarket<'info> {
     pub protocol_config: Account<'info, ProtocolConfig>,
     #[account(mut)]
     pub authority: Signer<'info>,
+    #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)]
     pub stock_mint: InterfaceAccount<'info, Mint>,
+    #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)]
     pub quote_mint: InterfaceAccount<'info, Mint>,
+    #[account(address = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)]
     pub stock_token_program: Interface<'info, TokenInterface>,
+    #[account(address = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)]
     pub quote_token_program: Interface<'info, TokenInterface>,
     #[account(
         init,
@@ -195,11 +214,19 @@ pub struct CreatePlan<'info> {
         constraint = market.enabled @ BazoError::MarketDisabled,
     )]
     pub market: Account<'info, Market>,
+    #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)]
     pub stock_mint: InterfaceAccount<'info, Mint>,
+    #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)]
     pub quote_mint: InterfaceAccount<'info, Mint>,
-    #[account(address = market.stock_token_program @ BazoError::MarketMismatch)]
+    #[account(
+        address = market.stock_token_program @ BazoError::MarketMismatch,
+        constraint = stock_token_program.key() == anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram,
+    )]
     pub stock_token_program: Interface<'info, TokenInterface>,
-    #[account(address = market.quote_token_program @ BazoError::MarketMismatch)]
+    #[account(
+        address = market.quote_token_program @ BazoError::MarketMismatch,
+        constraint = quote_token_program.key() == anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram,
+    )]
     pub quote_token_program: Interface<'info, TokenInterface>,
     #[account(
         mut,
@@ -340,6 +367,30 @@ pub enum BazoError {
     InvalidStockSource,
     #[msg("The stock source account does not have enough balance.")]
     InsufficientStock,
+    #[msg("Only Token-2022 mints and token programs are supported.")]
+    UnsupportedTokenProgram,
+    #[msg("The stock mint does not have the required Token-2022 extensions.")]
+    UnsupportedMintExtensions,
+}
+
+fn validate_stock_mint_extensions(stock_mint: &AccountInfo<'_>) -> Result<()> {
+    let mint_data = stock_mint.try_borrow_data()?;
+    let mint = StateWithExtensions::<Token2022Mint>::unpack(&mint_data)
+        .map_err(|_| error!(BazoError::UnsupportedMintExtensions))?;
+    let extensions = mint
+        .get_extension_types()
+        .map_err(|_| error!(BazoError::UnsupportedMintExtensions))?;
+
+    require!(
+        stock_extensions_are_supported(&extensions),
+        BazoError::UnsupportedMintExtensions
+    );
+
+    Ok(())
+}
+
+fn stock_extensions_are_supported(extensions: &[ExtensionType]) -> bool {
+    extensions == [ExtensionType::ScaledUiAmount]
 }
 
 pub fn terminal_commitment(plan: Pubkey, market: Pubkey) -> [u8; 32] {
@@ -432,5 +483,15 @@ mod tests {
             hex(&terminal_commitment(plan, market)),
             "9b298f734062568ff3ada1ba001d6b6beb4b37be69548128adee191cdae665d1"
         );
+    }
+
+    #[test]
+    fn accepts_only_the_scaled_ui_amount_stock_extension() {
+        assert!(stock_extensions_are_supported(&[ExtensionType::ScaledUiAmount]));
+        assert!(!stock_extensions_are_supported(&[]));
+        assert!(!stock_extensions_are_supported(&[
+            ExtensionType::ScaledUiAmount,
+            ExtensionType::MintCloseAuthority,
+        ]));
     }
 }
