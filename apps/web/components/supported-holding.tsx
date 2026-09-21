@@ -95,6 +95,12 @@ export function SupportedHolding({ market }: { market: PublicMarket }) {
       >
         View market
       </Link>
+      <Link
+        href={`/sell-plans/new?market=${market.id}`}
+        className="ml-3 inline-flex min-h-11 items-center rounded border border-line-strong bg-surface-3 px-4 text-sm text-text-primary hover:border-focus"
+      >
+        Create Sell Plan
+      </Link>
     </section>
   );
 }

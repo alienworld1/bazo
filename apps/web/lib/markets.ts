@@ -61,6 +61,8 @@ export type SupportedHolding = {
   displaySymbol: string;
   decimals: number;
   multiplierContext: string | null;
+  sourceTokenAccount: string | null;
+  sourceRawAmount: string;
   slot: number;
 };
 

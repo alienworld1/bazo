@@ -1,0 +1,13 @@
+{
+  "name": "@bazo/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bazo/plan-crypto": "workspace:*",
+    "@solana/kit": "8.3.0"
+  }
+}

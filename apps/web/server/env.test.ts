@@ -31,7 +31,9 @@ describe('server environment', () => {
   });
 
   it('identifies the missing configuration variable', () => {
-    const { PYTH_API_KEY: _key, ...withoutPythKey } = environment;
+    const withoutPythKey = Object.fromEntries(
+      Object.entries(environment).filter(([key]) => key !== 'PYTH_API_KEY'),
+    );
     expect(() => parseEnvironment(withoutPythKey)).toThrow('PYTH_API_KEY');
   });
 

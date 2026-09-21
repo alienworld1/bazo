@@ -175,6 +175,9 @@ importers:
       '@bazo/plan-crypto':
         specifier: workspace:*
         version: link:../../packages/plan-crypto
+      '@bazo/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@pythnetwork/pyth-lazer-sdk':
         specifier: 7.0.0
         version: 7.0.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
@@ -239,6 +242,15 @@ importers:
       '@solana/codecs-strings':
         specifier: 8.3.0
         version: 8.3.0(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)
+
+  packages/sdk:
+    dependencies:
+      '@bazo/plan-crypto':
+        specifier: workspace:*
+        version: link:../plan-crypto
+      '@solana/kit':
+        specifier: 8.3.0
+        version: 8.3.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@6.0.6)
 
 packages:
 

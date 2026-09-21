@@ -155,7 +155,7 @@ function assertStage(stage: CanonicalStageV1) {
 }
 
 function addressBytes(value: string): Uint8Array {
-  const bytes = base58Encoder.encode(value);
+  const bytes = new Uint8Array(base58Encoder.encode(value));
   return fixedBytes(bytes, 32, 'address');
 }
 
@@ -208,7 +208,8 @@ function concatBytes(...values: Uint8Array[]): Uint8Array {
 }
 
 async function sha256(value: Uint8Array): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', value));
+  const bytes = new Uint8Array(value);
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.buffer));
 }
 
 function sameBytes(first: Uint8Array, second: Uint8Array): boolean {

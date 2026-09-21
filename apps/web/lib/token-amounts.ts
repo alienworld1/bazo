@@ -34,3 +34,31 @@ export function formatDisplayAmount(
     .replace(/0+$/, '');
   return fraction ? `${whole}.${fraction}` : whole.toString();
 }
+
+export function parseDisplayAmountToRaw(
+  displayAmount: string,
+  decimals: number,
+  multiplier = '1',
+): string {
+  if (
+    !/^\d+(\.\d+)?$/.test(displayAmount) ||
+    !/^\d+(\.\d+)?$/.test(multiplier) ||
+    decimals < 0
+  ) {
+    throw new Error('invalid display conversion input');
+  }
+  const [displayWhole, displayFraction = ''] = displayAmount.split('.');
+  const [multiplierWhole, multiplierFraction = ''] = multiplier.split('.');
+  const displayScale = BigInt(10) ** BigInt(displayFraction.length);
+  const multiplierScale = BigInt(10) ** BigInt(multiplierFraction.length);
+  const displayScaled =
+    BigInt(displayWhole) * displayScale + BigInt(displayFraction || '0');
+  const multiplierScaled =
+    BigInt(multiplierWhole) * multiplierScale +
+    BigInt(multiplierFraction || '0');
+  if (multiplierScaled === 0n) throw new Error('invalid display conversion input');
+  return (
+    (displayScaled * (BigInt(10) ** BigInt(decimals)) * multiplierScale) /
+    (displayScale * multiplierScaled)
+  ).toString();
+}

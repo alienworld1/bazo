@@ -48,8 +48,7 @@ export async function readSupportedHolding(
     throw new Error('unsupported_mint_extension');
   }
 
-  const rawAmount = aggregateRawAmounts(
-    tokenAccounts.value.map(account => {
+  const validAccounts = tokenAccounts.value.map(account => {
       const decoded = decodeToken(
         parseBase64RpcAccount(account.pubkey, account.account),
       );
@@ -60,8 +59,15 @@ export async function readSupportedHolding(
       ) {
         throw new Error('token_account_mismatch');
       }
-      return decoded.data.amount.toString();
-    }),
+      return { address: account.pubkey, rawAmount: decoded.data.amount.toString() };
+    });
+  const rawAmount = aggregateRawAmounts(validAccounts.map(account => account.rawAmount));
+  const source = validAccounts.reduce<(typeof validAccounts)[number] | undefined>(
+    (largest, account) =>
+      !largest || BigInt(account.rawAmount) > BigInt(largest.rawAmount)
+        ? account
+        : largest,
+    undefined,
   );
   const scaledExtension = extensions.find(
     extension => extension.__kind === 'ScaledUiAmountConfig',
@@ -83,6 +89,8 @@ export async function readSupportedHolding(
     displaySymbol: market.symbol,
     decimals: mintAccount.data.decimals,
     multiplierContext: scaledExtension ? multiplier : null,
+    sourceTokenAccount: source?.address ?? null,
+    sourceRawAmount: source?.rawAmount ?? '0',
     slot: Number(tokenAccounts.context.slot),
   };
 }
