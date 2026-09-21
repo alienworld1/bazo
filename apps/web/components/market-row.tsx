@@ -15,12 +15,20 @@ export function MarketRow({ market }: { market: PublicMarket }) {
         <p className="mt-2 text-sm text-text-secondary">Devnet test asset</p>
       </div>
       <ReferenceStatus marketId={market.id} />
-      <Link
-        href={`/markets/${market.id}`}
-        className="inline-flex min-h-11 items-center justify-center rounded border border-line-default px-4 text-sm text-text-primary hover:border-line-strong"
-      >
-        View market
-      </Link>
+      <div className="flex flex-wrap gap-3">
+        <Link
+          href={`/markets/${market.id}`}
+          className="inline-flex min-h-11 items-center justify-center rounded border border-line-default px-4 text-sm text-text-primary hover:border-line-strong"
+        >
+          View market
+        </Link>
+        <Link
+          href={`/sell-plans/new?market=${market.id}`}
+          className="inline-flex min-h-11 items-center justify-center rounded border border-line-strong bg-surface-3 px-4 text-sm text-text-primary hover:border-focus"
+        >
+          Create plan
+        </Link>
+      </div>
     </article>
   );
 }

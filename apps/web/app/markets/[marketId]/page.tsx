@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import Link from 'next/link';
 import { AppShell } from '@/components/app-shell';
 import { ReferenceStatus } from '@/components/reference-status';
 import { SupportedHolding } from '@/components/supported-holding';
@@ -28,6 +29,12 @@ export default async function MarketDetailPage({
           {market.displayName}
         </h1>
         <p className="mt-3 text-sm text-text-secondary">Devnet test asset</p>
+        <Link
+          href={`/sell-plans/new?market=${market.id}`}
+          className="mt-6 inline-flex min-h-11 items-center rounded border border-line-strong bg-surface-3 px-4 text-sm text-text-primary hover:border-focus"
+        >
+          Create a Sell Plan
+        </Link>
         <section className="mt-10 grid gap-10 border-y border-line-default py-8 md:grid-cols-2">
           <div>
             <h2 className="text-sm font-medium text-text-primary">

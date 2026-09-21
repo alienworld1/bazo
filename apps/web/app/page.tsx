@@ -14,10 +14,10 @@ export default function Home() {
           executes.
         </p>
         <Link
-          href="/portfolio"
+          href="/sell-plans/new"
           className="mt-10 inline-flex min-h-11 items-center rounded border border-line-strong px-5 text-sm text-text-primary hover:bg-surface-2"
         >
-          Open Bazo
+          Create a Sell Plan
         </Link>
       </section>
       <section className="mx-auto max-w-5xl border-y border-line-default py-8">

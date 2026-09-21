@@ -7,6 +7,7 @@ import { WalletControl } from './wallet-control';
 const navigation = [
   { href: '/portfolio', label: 'Portfolio' },
   { href: '/markets', label: 'Markets' },
+  { href: '/sell-plans/new', label: 'Create plan' },
   { href: '/activity', label: 'Activity' },
 ];
 
