@@ -29,6 +29,9 @@ export async function readSupportedHolding(
       .send(),
   ]);
 
+  if (mintAccount.programAddress !== address(market.stockTokenProgram)) {
+    throw new Error('mint_program_mismatch');
+  }
   if (mintAccount.data.decimals !== market.tokenDecimals) {
     throw new Error('mint_decimals_mismatch');
   }
@@ -51,6 +54,7 @@ export async function readSupportedHolding(
         parseBase64RpcAccount(account.pubkey, account.account),
       );
       if (
+        decoded.programAddress !== address(market.stockTokenProgram) ||
         decoded.data.mint !== mintAddress ||
         decoded.data.owner !== address(owner)
       ) {
