@@ -8,17 +8,15 @@ const upstreamSchema = z.object({
   parsed: z.object({
     priceFeeds: z.array(
       z.object({
-        feedId: z.union([z.string(), z.number()]),
-        price: z.object({
-          price: z.union([z.string(), z.number()]),
-          exponent: z.number(),
-          confidence: z.union([z.string(), z.number()]),
-          publishTime: z.union([z.string(), z.number()]),
-        }),
+        priceFeedId: z.union([z.string(), z.number()]),
+        price: z.union([z.string(), z.number()]),
+        exponent: z.number(),
+        confidence: z.union([z.string(), z.number()]),
         publisherCount: z.number().optional(),
         marketSession: z
           .enum(['regular', 'preMarket', 'postMarket', 'overNight', 'closed'])
           .optional(),
+        feedUpdateTimestamp: z.union([z.string(), z.number()]),
       }),
     ),
   }),
@@ -41,7 +39,14 @@ export async function readReference(
         },
         body: JSON.stringify({
           priceFeedIds: [Number(market.pythFeedId)],
-          properties: ['price'],
+          properties: [
+            'price',
+            'exponent',
+            'confidence',
+            'publisherCount',
+            'marketSession',
+            'feedUpdateTimestamp',
+          ],
           formats: ['solana'],
           channel: 'fixed_rate@1000ms',
         }),
@@ -56,23 +61,24 @@ export async function readReference(
     return evaluateReference(
       {
         marketId: market.id,
-        feedId: String(feed.feedId),
-        price: String(feed.price.price),
-        exponent: feed.price.exponent,
-        formattedPrice: formatPrice(
-          String(feed.price.price),
-          feed.price.exponent,
-        ),
-        confidence: String(feed.price.confidence),
+        feedId: String(feed.priceFeedId),
+        price: String(feed.price),
+        exponent: feed.exponent,
+        formattedPrice: formatPrice(String(feed.price), feed.exponent),
+        confidence: String(feed.confidence),
         publisherCount: feed.publisherCount ?? 0,
         marketSession: feed.marketSession ?? 'unknown',
-        feedUpdateTimestamp: String(feed.price.publishTime),
+        feedUpdateTimestamp: toUnixSeconds(feed.feedUpdateTimestamp),
       },
       market,
     );
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function toUnixSeconds(timestamp: string | number): string {
+  return (BigInt(timestamp) / 1_000_000n).toString();
 }
 
 function formatPrice(price: string, exponent: number): string {
