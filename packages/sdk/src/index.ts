@@ -47,6 +47,10 @@ export type CreateSellPlanInput = {
   expiresAt: bigint;
 };
 
+export type PreparedSellPlanTransaction = Pick<PlanAddresses, 'plan' | 'stockVault' | 'proceedsVault'> & {
+  instruction: Instruction;
+};
+
 export async function deriveMarketAddress(
   programAddress: Address,
   addresses: MarketAddresses,
@@ -88,6 +92,12 @@ export async function derivePlanAddresses(
 export async function createSellPlanInstruction(
   input: CreateSellPlanInput,
 ): Promise<Instruction> {
+  return (await prepareSellPlan(input)).instruction;
+}
+
+export async function prepareSellPlan(
+  input: CreateSellPlanInput,
+): Promise<PreparedSellPlanTransaction> {
   if (input.currentStageCommitment.length !== 32) {
     throw new Error('a Sell Plan needs a 32-byte commitment');
   }
@@ -104,7 +114,7 @@ export async function createSellPlanInstruction(
     i64(input.expiresAt),
     u16(COMMITMENT_SCHEMA_VERSION),
   );
-  return {
+  const instruction = {
     programAddress: input.programAddress,
     accounts: [
       { address: input.owner, role: AccountRole.WRITABLE_SIGNER },
@@ -121,6 +131,7 @@ export async function createSellPlanInstruction(
     ],
     data,
   };
+  return { ...addresses, instruction };
 }
 
 async function anchorDiscriminator(name: string): Promise<Uint8Array> {

@@ -12,9 +12,9 @@ import {
   toHex,
 } from '@bazo/plan-crypto';
 import {
-  createSellPlanInstruction,
   deriveMarketAddress,
   derivePlanAddresses,
+  prepareSellPlan,
 } from '@bazo/sdk';
 import { allocateStageInventory } from '@/lib/stage-allocation';
 import {
@@ -174,7 +174,7 @@ export function SellPlanComposer({
     setTransactionError(undefined);
     setTransactionStatus('Checking transaction…');
     try {
-      const instruction = await createSellPlanInstruction({
+      const preparedTransaction = await prepareSellPlan({
         programAddress: address(programAddress),
         owner: address(owner),
         sourceStockAccount: address(holding.sourceTokenAccount),
@@ -189,7 +189,7 @@ export function SellPlanComposer({
         expiresAt: BigInt(prepared.expiresAtUnix),
       });
       setTransactionStatus('Awaiting wallet approval…');
-      const result = await solanaClient.sendTransaction([instruction]);
+      const result = await solanaClient.sendTransaction([preparedTransaction.instruction]);
       setTransactionStatus('Reconciling your funded Plan…');
       const signature = result.context.signature;
       router.replace(`/sell-plans/${prepared.plan}?signature=${signature}`);
