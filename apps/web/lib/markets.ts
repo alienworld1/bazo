@@ -53,6 +53,17 @@ export type NormalizedReference = {
   reasons: string[];
 };
 
+export type SupportedHolding = {
+  owner: string;
+  marketId: string;
+  rawAmount: string;
+  displayAmount: string;
+  displaySymbol: string;
+  decimals: number;
+  multiplierContext: string | null;
+  slot: number;
+};
+
 export type PublicMarket = Omit<
   MarketConfig,
   'minimumStageRawAmount' | 'batchDurationSeconds'
