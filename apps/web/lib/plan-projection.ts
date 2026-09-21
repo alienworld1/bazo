@@ -14,7 +14,9 @@ export type PublicSellPlan = {
   remainingRawInventory: string;
   status: 'active' | 'unknown';
   currentStageIndex: number;
+  currentCommitment: string;
   currentCommitmentFingerprint: string;
+  expiresAtUnix: string;
   createdAt: string;
   expiresAt: string;
 };
@@ -42,9 +44,11 @@ export function decodePublicSellPlan(
     remainingRawInventory: view.getBigUint64(146, true).toString(),
     status: data[212] === 1 ? 'active' : 'unknown',
     currentStageIndex: view.getUint16(178, true),
+    currentCommitment: toHex(commitment),
     currentCommitmentFingerprint: `${toHex(commitment.slice(0, 6))}…${toHex(commitment.slice(-4))}`,
     createdAt: new Date(Number(view.getBigInt64(213, true)) * 1_000).toLocaleString(),
     expiresAt: new Date(Number(view.getBigInt64(221, true)) * 1_000).toLocaleString(),
+    expiresAtUnix: view.getBigInt64(221, true).toString(),
   };
 }
 

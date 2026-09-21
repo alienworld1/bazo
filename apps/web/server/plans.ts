@@ -6,6 +6,7 @@ import {
   isAddress,
   parseBase64RpcAccount,
 } from '@solana/kit';
+import { decodeToken } from '@solana-program/token-2022';
 import { getEnvironment } from './env';
 import {
   decodePublicSellPlan,
@@ -15,9 +16,16 @@ import {
 
 export type { PublicSellPlan } from '@/lib/plan-projection';
 
+export type VerifiedPublicSellPlan = PublicSellPlan & {
+  stockVaultMint: string;
+  stockVaultOwner: string;
+  stockVaultRawAmount: string;
+  proceedsVaultRawAmount: string;
+};
+
 export async function readPublicSellPlan(
   planAddress: string,
-): Promise<PublicSellPlan | null> {
+): Promise<VerifiedPublicSellPlan | null> {
   if (!isAddress(planAddress)) return null;
   const env = getEnvironment();
   const rpc = createSolanaRpc(env.SOLANA_RPC_URL);
@@ -35,5 +43,35 @@ export async function readPublicSellPlan(
     return null;
   }
 
-  return decodePublicSellPlan(account.data, planAddress);
+  const plan = decodePublicSellPlan(account.data, planAddress);
+  if (!plan || !isAddress(plan.stockVault) || !isAddress(plan.proceedsVault)) {
+    return null;
+  }
+  const [stockVaultAccount, proceedsVaultAccount] = await Promise.all([
+    rpc.getAccountInfo(address(plan.stockVault), { encoding: 'base64' }).send(),
+    rpc.getAccountInfo(address(plan.proceedsVault), { encoding: 'base64' }).send(),
+  ]);
+  const stockVault = parseBase64RpcAccount(
+    address(plan.stockVault),
+    stockVaultAccount.value,
+  );
+  const proceedsVault = parseBase64RpcAccount(
+    address(plan.proceedsVault),
+    proceedsVaultAccount.value,
+  );
+  if (!stockVault.exists || !proceedsVault.exists) return null;
+
+  try {
+    const decodedStockVault = decodeToken(stockVault);
+    const decodedProceedsVault = decodeToken(proceedsVault);
+    return {
+      ...plan,
+      stockVaultMint: decodedStockVault.data.mint,
+      stockVaultOwner: decodedStockVault.data.owner,
+      stockVaultRawAmount: decodedStockVault.data.amount.toString(),
+      proceedsVaultRawAmount: decodedProceedsVault.data.amount.toString(),
+    };
+  } catch {
+    return null;
+  }
 }

@@ -192,7 +192,20 @@ export function SellPlanComposer({
       const result = await solanaClient.sendTransaction([preparedTransaction.instruction]);
       setTransactionStatus('Reconciling your funded Plan…');
       const signature = result.context.signature;
-      router.replace(`/sell-plans/${prepared.plan}?signature=${signature}`);
+      const response = await fetch(`/api/sell-plans/${prepared.plan}`, {
+        cache: 'no-store',
+      });
+      const plan = response.ok ? await response.json() : undefined;
+      const reconciled = isPreparedPlanReconciled({
+        plan,
+        prepared,
+        owner,
+        stockMint: market.stockMint,
+      });
+      const reconciliation = reconciled ? 'confirmed' : 'mismatch';
+      router.replace(
+        `/sell-plans/${prepared.plan}?signature=${signature}&reconciliation=${reconciliation}`,
+      );
     } catch (error) {
       setTransactionStatus(undefined);
       setTransactionError(mapTransactionError(error));
@@ -329,3 +342,4 @@ function sessionMask(sessions: readonly string[]): number { return sessions.redu
 function moveStage(stages: DraftStage[], setStages: (stages: DraftStage[]) => void, index: number, direction: -1 | 1) { const target = index + direction; if (target < 0 || target >= stages.length) return; const next = [...stages]; const source = next[index]; const destination = next[target]; if (!source || !destination) return; next[index] = destination; next[target] = source; setStages(next); }
 function validateDraft({ holding, committedRawAmount, allocations, stages, expiry, market }: { holding: LoadedHolding | undefined; committedRawAmount: bigint | undefined; allocations: ReturnType<typeof allocateStageInventory> | undefined; stages: DraftStage[]; expiry: string; market: SellPlanMarket }): string | undefined { if (!holding || !committedRawAmount || committedRawAmount <= 0n || committedRawAmount > BigInt(holding.rawAmount)) return 'Enter an amount within your available holding.'; if (committedRawAmount > BigInt(holding.sourceRawAmount)) return 'Choose an amount available from one supported token account.'; if (!allocations) return 'Stage allocations must add up to 100.00%.'; if (allocations.some(stage => stage.rawQuantity < BigInt(market.minimumStageRawAmount))) return 'This Stage is too small for this Market. Increase its allocation.'; if (stages.some(stage => stage.minPremiumBps <= -10_000 || stage.allowedSessions.length === 0)) return 'Every Stage needs a valid minimum premium and at least one available market session.'; if (!expiry || new Date(expiry).getTime() <= Date.now()) return 'Choose an end date in the future.'; return undefined; }
 function mapTransactionError(error: unknown): string { const message = error instanceof Error ? error.message.toLowerCase() : ''; if (message.includes('reject') || message.includes('cancel')) return 'Transaction canceled. Your Plan is still a draft and nothing moved.'; if (message.includes('insufficient')) return 'This Plan can’t be funded as prepared. Nothing moved. Refresh the details and try again.'; return 'We couldn’t confirm the transaction. Don’t submit again yet—we’re checking Solana for your Plan.'; }
+function isPreparedPlanReconciled({ plan, prepared, owner, stockMint }: { plan: unknown; prepared: PreparedSellPlan; owner: string; stockMint: string }): boolean { if (!plan || typeof plan !== 'object') return false; const value = plan as Record<string, unknown>; return value.owner === owner && value.market === prepared.marketAddress && value.stockVault === prepared.stockVault && value.proceedsVault === prepared.proceedsVault && value.initialRawInventory === prepared.rawAmount && value.remainingRawInventory === prepared.rawAmount && value.stockVaultMint === stockMint && value.stockVaultOwner === prepared.plan && value.stockVaultRawAmount === prepared.rawAmount && value.proceedsVaultRawAmount === '0' && value.currentStageIndex === 0 && value.currentCommitment === prepared.headCommitment && value.expiresAtUnix === prepared.expiresAtUnix && value.status === 'active'; }

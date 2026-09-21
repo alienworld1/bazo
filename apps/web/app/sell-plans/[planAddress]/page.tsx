@@ -7,10 +7,13 @@ export const dynamic = 'force-dynamic';
 
 export default async function SellPlanDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ planAddress: string }>;
+  searchParams: Promise<{ reconciliation?: string; signature?: string }>;
 }) {
   const { planAddress } = await params;
+  const { reconciliation, signature } = await searchParams;
   const plan = await readPublicSellPlan(planAddress);
   if (!plan) notFound();
 
@@ -19,13 +22,22 @@ export default async function SellPlanDetailPage({
       <article className="mx-auto max-w-3xl border-y border-line-default py-8">
         <p className="font-mono text-xs text-text-tertiary">SELL PLAN</p>
         <h1 className="mt-3 text-3xl font-medium text-text-primary">
-          {plan.status === 'active' ? 'Plan sealed' : 'Sell Plan'}
+          {plan.status === 'active' && reconciliation !== 'mismatch'
+            ? 'Plan sealed'
+            : 'Sell Plan'}
         </h1>
         <p className="mt-3 text-text-secondary">
-          {plan.status === 'active'
+          {plan.status === 'active' && reconciliation !== 'mismatch'
             ? 'Your stock is funded and your future Stages are binding.'
             : 'This Plan is available to inspect on Devnet.'}
         </p>
+        {reconciliation === 'mismatch' ? (
+          <p className="mt-4 text-sm text-warning" role="alert">
+            Your transaction was confirmed, but the Plan details don&apos;t match
+            this browser&apos;s prepared copy. Your stock remains governed by the
+            onchain Plan.
+          </p>
+        ) : null}
         <dl className="mt-8 space-y-4 text-sm">
           <PlanFact label="Active Stage" value={`Stage ${plan.currentStageIndex + 1}`} />
           <PlanFact label="Remaining" value={`${plan.remainingRawInventory} raw`} />
@@ -45,6 +57,7 @@ export default async function SellPlanDetailPage({
             <PlanFact label="Stock vault" value={plan.stockVault} />
             <PlanFact label="Proceeds vault" value={plan.proceedsVault} />
             <PlanFact label="Current commitment" value={plan.currentCommitmentFingerprint} />
+            {signature ? <PlanFact label="Transaction" value={signature} /> : null}
           </dl>
         </details>
         <div className="mt-8 flex gap-4">
