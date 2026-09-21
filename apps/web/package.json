@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@bazo/plan-crypto": "workspace:*",
     "@solana/kit": "8.3.0",
     "@solana/kit-plugin-rpc": "0.19.0",
     "@solana/kit-plugin-wallet": "0.20.0",
