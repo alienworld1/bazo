@@ -232,6 +232,7 @@ pub struct CreatePlan<'info> {
         mut,
         constraint = owner_stock_account.owner == owner.key() @ BazoError::InvalidStockSource,
         constraint = owner_stock_account.mint == stock_mint.key() @ BazoError::InvalidStockSource,
+        constraint = owner_stock_account.to_account_info().owner == &stock_token_program.key() @ BazoError::InvalidStockSource,
     )]
     pub owner_stock_account: InterfaceAccount<'info, TokenAccount>,
     #[account(
