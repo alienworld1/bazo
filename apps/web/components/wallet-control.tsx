@@ -4,11 +4,13 @@ import {
   useConnect,
   useConnectedWallet,
   useDisconnect,
+  useIsWalletReady,
   useWallets,
 } from '@solana/kit-plugin-wallet/react';
 import { solanaClient } from './solana-client';
 
 export function WalletControl() {
+  const isWalletReady = useIsWalletReady(solanaClient);
   const connected = useConnectedWallet(solanaClient);
   const wallets = useWallets(solanaClient);
   const {
@@ -17,6 +19,14 @@ export function WalletControl() {
     isRunning: isConnecting,
   } = useConnect(solanaClient);
   const { dispatch: disconnect } = useDisconnect(solanaClient);
+
+  if (!isWalletReady) {
+    return (
+      <span className="inline-flex min-h-11 items-center rounded border border-line-default px-3 text-sm text-text-secondary">
+        Loading wallet…
+      </span>
+    );
+  }
 
   if (connected) {
     const address = connected.account.address;
