@@ -13,6 +13,7 @@
     "test": "pnpm --filter web test",
     "build": "pnpm --filter web build",
     "format": "prettier --write",
-    "setup:devnet": "node scripts/setup-devnet.cjs"
+    "setup:devnet": "node scripts/setup-devnet.cjs",
+    "fixture:plan": "node scripts/create-devnet-fixture-plan.cjs"
   }
 }
