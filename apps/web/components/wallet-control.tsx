@@ -1,5 +1,6 @@
 'use client';
 
+import { useSyncExternalStore } from 'react';
 import {
   useConnect,
   useConnectedWallet,
@@ -9,7 +10,14 @@ import {
 } from '@solana/kit-plugin-wallet/react';
 import { solanaClient } from './solana-client';
 
+const subscribeToHydration = () => () => undefined;
+
+function useHasHydrated() {
+  return useSyncExternalStore(subscribeToHydration, () => true, () => false);
+}
+
 export function WalletControl() {
+  const hasHydrated = useHasHydrated();
   const isWalletReady = useIsWalletReady(solanaClient);
   const connected = useConnectedWallet(solanaClient);
   const wallets = useWallets(solanaClient);
@@ -20,7 +28,7 @@ export function WalletControl() {
   } = useConnect(solanaClient);
   const { dispatch: disconnect } = useDisconnect(solanaClient);
 
-  if (!isWalletReady) {
+  if (!hasHydrated || !isWalletReady) {
     return (
       <span className="inline-flex min-h-11 items-center rounded border border-line-default px-3 text-sm text-text-secondary">
         Loading wallet…
