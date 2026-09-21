@@ -1,0 +1,16 @@
+{
+  "name": "bazo",
+  "private": true,
+  "packageManager": "pnpm@12.4.2",
+  "devDependencies": {
+    "prettier": "3.8.2"
+  },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "lint": "pnpm --filter web lint",
+    "typecheck": "pnpm --filter web typecheck",
+    "test": "pnpm --filter web test",
+    "build": "pnpm --filter web build",
+    "format": "prettier --write"
+  }
+}

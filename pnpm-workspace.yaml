@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+
+ignoredBuiltDependencies:
+  - bufferutil
+  - unrs-resolver
+  - utf-8-validate
+allowBuilds:
+  bigint-buffer: set this to true or false
+  bufferutil: set this to true or false
+  unrs-resolver: set this to true or false
+  utf-8-validate: set this to true or false
