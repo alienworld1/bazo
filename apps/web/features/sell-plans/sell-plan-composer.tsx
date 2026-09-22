@@ -6,6 +6,7 @@ import { useConnectedWallet } from '@solana/kit-plugin-wallet/react';
 import { address } from '@solana/kit';
 import {
   buildCommitmentChain,
+  encryptPlanPackage,
   randomPlanNonce,
   randomSalt,
   toHex,
@@ -28,6 +29,7 @@ import { DisconnectedSellPlanState } from './disconnected-sell-plan-state';
 import { EmptySellPlanState } from './empty-sell-plan-state';
 import { PreparedSellPlanReview } from './prepared-sell-plan-review';
 import { rememberPrivatePlan } from './private-plan-memory';
+import { stageEncryptedPrivatePayload } from './recovery/encrypted-local-plan-store';
 import type {
   DraftStage,
   LoadedHolding,
@@ -151,6 +153,16 @@ export function SellPlanComposer({
           salt: randomSalt(),
         })),
       );
+      const privatePackage = {
+        packageVersion: 1 as const,
+        plan: addresses.plan,
+        market: marketAddress,
+        owner,
+        commitmentSchemaVersion: 1 as const,
+        stages: chain.stages,
+        createdAt: Math.floor(Date.now() / 1_000),
+      };
+      const encryptedPrivatePlan = await encryptPlanPackage(privatePackage);
       setPrepared({
         marketAddress,
         planNonce: nonce.toString(),
@@ -167,15 +179,9 @@ export function SellPlanComposer({
         expiresAt: new Date(expiry).toLocaleString(),
         expiresAtUnix: String(Math.floor(new Date(expiry).getTime() / 1_000)),
         headCommitmentBytes: chain.headCommitment,
-        privatePackage: {
-          packageVersion: 1,
-          plan: addresses.plan,
-          market: marketAddress,
-          owner,
-          commitmentSchemaVersion: 1,
-          stages: chain.stages,
-          createdAt: Math.floor(Date.now() / 1_000),
-        },
+        privatePackage,
+        privatePayload: encryptedPrivatePlan.payload,
+        privatePlanKey: encryptedPrivatePlan.planKey,
       });
     } finally {
       setPreparing(false);
@@ -187,6 +193,7 @@ export function SellPlanComposer({
     setTransactionError(undefined);
     setTransactionStatus('Checking transaction…');
     try {
+      await stageEncryptedPrivatePayload(prepared.privatePayload);
       const preparedTransaction = await prepareSellPlan({
         programAddress: address(programAddress),
         owner: address(owner),
@@ -220,6 +227,8 @@ export function SellPlanComposer({
         rememberPrivatePlan(prepared.plan, {
           owner,
           package: prepared.privatePackage,
+          payload: prepared.privatePayload,
+          planKey: prepared.privatePlanKey,
           stages: stages.map((stage, index) => ({
             index,
             rawQuantity: allocations?.[index]?.rawQuantity.toString() ?? '0',

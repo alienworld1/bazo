@@ -3,6 +3,7 @@ import { DEVNET_NETWORK_ID, verifyCommitmentChain, type CommittedStage } from '.
 
 export const PLAN_CIPHER_SUITE = 'AES-256-GCM/v1';
 export const PASSPHRASE_WRAP_METHOD = 'PBKDF2-SHA-256/AES-256-GCM/v1';
+export const WALLET_WRAP_METHOD = 'HKDF-SHA-256/AES-256-GCM/v1';
 export const BACKUP_FORMAT = 'bazo-private-plan';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -39,6 +40,26 @@ export type PassphraseWrappedPlanKeyV1 = {
   iterations: 600000;
   wrapNonce: string;
   wrappedPlanKey: string;
+};
+
+export type WalletWrappedPlanKeyV1 = {
+  wrapVersion: 1;
+  method: typeof WALLET_WRAP_METHOD;
+  messageVersion: 1;
+  kdfSalt: string;
+  wrapNonce: string;
+  wrappedPlanKey: string;
+};
+
+export type PrivatePlanBlobRecordV1 = {
+  recordVersion: 1;
+  plan: string;
+  owner: string;
+  payload: EncryptedPlanPayloadV1;
+  recovery: WalletWrappedPlanKeyV1;
+  ciphertextHash: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type BazoBackupV1 = {
@@ -132,6 +153,34 @@ export async function createBackup(payload: EncryptedPlanPayloadV1, planKey: Uin
   return { backupFormat: BACKUP_FORMAT, formatVersion: 1, createdAt, payload, recovery, checksum: encodeBytes(checksum) };
 }
 
+export function privateRecoveryMessage(owner: string, plan: string): string {
+  assertAddress(owner); assertAddress(plan);
+  return `Bazo Devnet private Plan recovery\nOwner: ${owner}\nPlan: ${plan}\nFormat: 1\nThis signature authorizes private recovery. It is not a transaction.`;
+}
+
+export async function wrapPlanKeyWithWalletSignature(planKey: Uint8Array, signature: Uint8Array, owner: string, plan: string): Promise<WalletWrappedPlanKeyV1> {
+  if (planKey.length !== 32 || signature.length !== 64) throw new Error('invalid wallet recovery material');
+  const kdfSalt = randomBytes(32); const wrapNonce = randomBytes(12);
+  const key = await walletSignatureKey(signature, kdfSalt, owner, plan, ['encrypt']);
+  const wrappedPlanKey = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: buffer(wrapNonce), tagLength: 128 }, key, buffer(planKey)));
+  return { wrapVersion: 1, method: WALLET_WRAP_METHOD, messageVersion: 1, kdfSalt: encodeBytes(kdfSalt), wrapNonce: encodeBytes(wrapNonce), wrappedPlanKey: encodeBytes(wrappedPlanKey) };
+}
+
+export async function unwrapPlanKeyWithWalletSignature(value: WalletWrappedPlanKeyV1, signature: Uint8Array, owner: string, plan: string): Promise<Uint8Array> {
+  assertWalletRecovery(value);
+  try { return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buffer(decodeBytes(value.wrapNonce, 12)), tagLength: 128 }, await walletSignatureKey(signature, decodeBytes(value.kdfSalt, 32), owner, plan, ['decrypt']), buffer(decodeBytes(value.wrappedPlanKey, 48)))); } catch { throw new Error('wallet recovery key decryption failed'); }
+}
+
+export function parsePrivatePlanBlobRecord(source: string): PrivatePlanBlobRecordV1 {
+  if (encoder.encode(source).length > 256 * 1024) throw new Error('record too large');
+  const value = parseStrictJson(source, ['recordVersion', 'plan', 'owner', 'payload', 'recovery', 'ciphertextHash', 'createdAt', 'updatedAt']);
+  if (value.recordVersion !== 1 || !isRecord(value.payload) || !isRecord(value.recovery)) throw new Error('unsupported record');
+  const record = { recordVersion: 1, plan: stringField(value.plan), owner: stringField(value.owner), payload: value.payload as EncryptedPlanPayloadV1, recovery: value.recovery as WalletWrappedPlanKeyV1, ciphertextHash: stringField(value.ciphertextHash), createdAt: isoTimestamp(value.createdAt), updatedAt: isoTimestamp(value.updatedAt) } as PrivatePlanBlobRecordV1;
+  assertBlobRecord(record); return record;
+}
+
+export function serializePrivatePlanBlobRecord(value: PrivatePlanBlobRecordV1): string { assertBlobRecord(value); return JSON.stringify(value); }
+
 export function serializeBackup(value: BazoBackupV1): string { assertBackup(value); return JSON.stringify(value); }
 export function parseBackup(source: string): BazoBackupV1 {
   if (encoder.encode(source).length > 256 * 1024) throw new Error('backup too large');
@@ -179,16 +228,25 @@ async function passphraseKey(value: string, salt: Uint8Array, usage: KeyUsage[])
   return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: buffer(salt), iterations: 600000 }, material, { name: 'AES-GCM', length: 256 }, false, usage);
 }
 
+async function walletSignatureKey(signature: Uint8Array, salt: Uint8Array, owner: string, plan: string, usage: KeyUsage[]) {
+  if (signature.length !== 64) throw new Error('invalid wallet recovery material');
+  const material = await crypto.subtle.importKey('raw', buffer(signature), 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: buffer(salt), info: buffer(encoder.encode(`BAZO_WALLET_WRAP_V1\n${owner}\n${plan}`)) }, material, { name: 'AES-GCM', length: 256 }, false, usage);
+}
+
 async function backupChecksum(payload: EncryptedPlanPayloadV1, recovery: PassphraseWrappedPlanKeyV1, createdAt: number) { return digest(encoder.encode(`BAZO_BACKUP_V1\n${createdAt}\n${JSON.stringify(payload)}\n${JSON.stringify(recovery)}`)); }
 function assertBackup(value: BazoBackupV1) { if (value.backupFormat !== BACKUP_FORMAT || value.formatVersion !== 1 || !Number.isInteger(value.createdAt)) throw new Error('unsupported backup'); assertPayload(value.payload); assertRecovery(value.recovery); decodeBytes(value.checksum, 32); }
 function assertPayload(value: EncryptedPlanPayloadV1) { if (!isRecord(value) || value.formatVersion !== 1 || value.network !== DEVNET_NETWORK_ID || value.packageVersion !== 1 || value.commitmentSchemaVersion !== 1 || value.cipherSuite !== PLAN_CIPHER_SUITE) throw new Error('unsupported payload'); assertAddress(value.plan); assertAddress(value.market); assertAddress(value.owner); decodeBytes(value.payloadNonce, 12); decodeBytes(value.encryptedPlanPackage, undefined, 256 * 1024); decodeBytes(value.ciphertextHash, 32); }
 function assertRecovery(value: PassphraseWrappedPlanKeyV1) { if (!isRecord(value) || value.wrapVersion !== 1 || value.method !== PASSPHRASE_WRAP_METHOD || value.iterations !== 600000) throw new Error('unsupported recovery'); decodeBytes(value.kdfSalt, 32); decodeBytes(value.wrapNonce, 12); decodeBytes(value.wrappedPlanKey, 48); }
+function assertWalletRecovery(value: WalletWrappedPlanKeyV1) { if (!isRecord(value) || value.wrapVersion !== 1 || value.method !== WALLET_WRAP_METHOD || value.messageVersion !== 1) throw new Error('unsupported wallet recovery'); decodeBytes(value.kdfSalt, 32); decodeBytes(value.wrapNonce, 12); decodeBytes(value.wrappedPlanKey, 48); }
+function assertBlobRecord(value: PrivatePlanBlobRecordV1) { if (value.recordVersion !== 1 || value.plan !== value.payload.plan || value.owner !== value.payload.owner || value.ciphertextHash !== value.payload.ciphertextHash) throw new Error('invalid private record'); assertAddress(value.plan); assertAddress(value.owner); assertPayload(value.payload); assertWalletRecovery(value.recovery); isoTimestamp(value.createdAt); isoTimestamp(value.updatedAt); }
 function assertPackage(value: PrivatePlanPackageV1) { if (value.packageVersion !== 1 || value.commitmentSchemaVersion !== 1 || !Number.isInteger(value.createdAt) || value.stages.length < 2 || value.stages.length > 6) throw new Error('invalid private Plan package'); assertAddress(value.plan); assertAddress(value.market); assertAddress(value.owner); }
 function assertAddress(value: string) { try { if (new Uint8Array(base58Encoder.encode(value)).length !== 32) throw new Error(); } catch { throw new Error('invalid address'); } }
 function parseStrictJson(source: string, keys: readonly string[]) { let value: unknown; try { value = JSON.parse(source); } catch { throw new Error('invalid JSON'); } if (!isRecord(value)) throw new Error('invalid JSON'); assertKeys(value, keys); return value; }
 function assertKeys(value: Record<string, unknown>, keys: readonly string[]) { if (Object.keys(value).length !== keys.length || keys.some(key => !(key in value))) throw new Error('invalid object shape'); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function stringField(value: unknown): string { if (typeof value !== 'string') throw new Error('invalid string'); return value; }
+function isoTimestamp(value: unknown): string { const result = stringField(value); if (Number.isNaN(Date.parse(result))) throw new Error('invalid timestamp'); return result; }
 function parseInteger(value: unknown): bigint { if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new Error('invalid integer'); return BigInt(value); }
 function encodeBytes(value: Uint8Array): string { return btoa(String.fromCharCode(...value)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, ''); }
 function decodeBytes(value: unknown, exactLength?: number, maxLength = exactLength ?? 256 * 1024): Uint8Array { if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('invalid bytes'); const padded = value.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat((4 - value.length % 4) % 4); let bytes: Uint8Array; try { bytes = Uint8Array.from(atob(padded), char => char.charCodeAt(0)); } catch { throw new Error('invalid bytes'); } if ((exactLength !== undefined && bytes.length !== exactLength) || bytes.length > maxLength) throw new Error('invalid bytes'); return bytes; }

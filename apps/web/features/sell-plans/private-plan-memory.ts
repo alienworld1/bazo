@@ -2,6 +2,7 @@
 
 import type { MarketSession } from '@/lib/markets';
 import type { PrivatePlanPackageV1 } from '@bazo/plan-crypto';
+import type { EncryptedPlanPayloadV1 } from '@bazo/plan-crypto';
 
 export type PrivateStagePreview = {
   index: number;
@@ -15,7 +16,7 @@ type PrivatePlanPreview = {
   stages: readonly PrivateStagePreview[];
 };
 
-type PrivatePlanMaterial = PrivatePlanPreview & { package: PrivatePlanPackageV1 };
+type PrivatePlanMaterial = PrivatePlanPreview & { package: PrivatePlanPackageV1; payload?: EncryptedPlanPayloadV1; planKey?: Uint8Array };
 
 const previews = new Map<string, PrivatePlanMaterial>();
 
@@ -33,6 +34,13 @@ export function getPrivatePlanPreview(plan: string, owner: string) {
 
 export function getPrivatePlanPackage(plan: string, owner: string) {
   return previews.get(plan)?.owner === owner ? previews.get(plan)?.package : undefined;
+}
+
+export function getPrivatePlanRecoveryMaterial(plan: string, owner: string) {
+  const material = previews.get(plan);
+  return material?.owner === owner && material.payload && material.planKey
+    ? { payload: material.payload, planKey: material.planKey }
+    : undefined;
 }
 
 export function clearPrivatePlansExcept(owner?: string) {

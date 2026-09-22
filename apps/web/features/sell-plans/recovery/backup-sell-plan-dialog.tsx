@@ -1,9 +1,9 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { createBackup, encryptPlanPackage, serializeBackup, type PrivatePlanPackageV1 } from '@bazo/plan-crypto';
+import { createBackup, serializeBackup, type EncryptedPlanPayloadV1, type PrivatePlanPackageV1 } from '@bazo/plan-crypto';
 
-export function BackupSellPlanDialog({ package: privatePackage, onClose }: { package: PrivatePlanPackageV1; onClose: () => void }) {
+export function BackupSellPlanDialog({ package: privatePackage, payload, planKey, onClose }: { package: PrivatePlanPackageV1; payload: EncryptedPlanPayloadV1; planKey: Uint8Array; onClose: () => void }) {
   const [passphrase, setPassphrase] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [error, setError] = useState<string>();
@@ -13,7 +13,6 @@ export function BackupSellPlanDialog({ package: privatePackage, onClose }: { pac
   const create = async () => {
     if (!valid) { setError(passphrase !== confirmation ? 'The passphrases don’t match.' : 'Use a longer recovery passphrase.'); return; }
     try {
-      const { planKey, payload } = await encryptPlanPackage(privatePackage);
       const backup = await createBackup(payload, planKey, passphrase);
       const blob = new Blob([serializeBackup(backup)], { type: 'application/vnd.bazo.private-plan+json' });
       const link = document.createElement('a');

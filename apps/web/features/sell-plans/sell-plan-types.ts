@@ -1,5 +1,6 @@
 import type { MarketConfig, MarketSession, SupportedHolding } from '@/lib/markets';
 import type { PrivatePlanPackageV1 } from '@bazo/plan-crypto';
+import type { EncryptedPlanPayloadV1 } from '@bazo/plan-crypto';
 
 export type SellPlanMarket = Pick<
   MarketConfig,
@@ -37,6 +38,8 @@ export type PreparedSellPlan = {
   expiresAtUnix: string;
   headCommitmentBytes: Uint8Array;
   privatePackage: PrivatePlanPackageV1;
+  privatePayload: EncryptedPlanPayloadV1;
+  privatePlanKey: Uint8Array;
 };
 
 export type LoadedHolding = SupportedHolding;

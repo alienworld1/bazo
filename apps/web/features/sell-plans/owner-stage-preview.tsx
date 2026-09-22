@@ -1,11 +1,13 @@
 'use client';
 
 import { useConnectedWallet } from '@solana/kit-plugin-wallet/react';
+import { useEffect } from 'react';
 import { solanaClient } from '@/components/solana-client';
-import { getPrivatePlanPreview } from './private-plan-memory';
+import { clearPrivatePlansExcept, getPrivatePlanPreview } from './private-plan-memory';
 
 export function OwnerStagePreview({ plan, owner }: { plan: string; owner: string }) {
   const connected = useConnectedWallet(solanaClient);
+  useEffect(() => { clearPrivatePlansExcept(connected?.account.address); }, [connected?.account.address]);
   const preview = connected?.account.address === owner
     ? getPrivatePlanPreview(plan, owner)
     : undefined;

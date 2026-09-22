@@ -6,6 +6,7 @@ import { useConnectedWallet } from '@solana/kit-plugin-wallet/react';
 import { parseBackup, unlockBackup, verifyRestoredPackage } from '@bazo/plan-crypto';
 import { solanaClient } from '@/components/solana-client';
 import { rememberPrivatePlan } from '@/features/sell-plans/private-plan-memory';
+import { stageEncryptedPrivatePayload } from '@/features/sell-plans/recovery/encrypted-local-plan-store';
 
 export function RestoreBackupPanel() {
   const connected = useConnectedWallet(solanaClient);
@@ -31,6 +32,7 @@ export function RestoreBackupPanel() {
       if (!response.ok) throw new Error('chain');
       const state = await response.json();
       await verifyRestoredPackage(privatePackage, state);
+      await stageEncryptedPrivatePayload(backup.payload);
       rememberPrivatePlan(privatePackage.plan, { owner: privatePackage.owner, package: privatePackage, stages: privatePackage.stages.map(stage => ({ index: stage.stageIndex, rawQuantity: stage.rawQuantity.toString(), minPremiumBps: stage.minPremiumBps, allowedSessions: sessions(stage.allowedSessionMask) })) });
       setPassphrase(''); setBackupText(undefined); setStatus('Backup restored and verified');
       router.push(`/sell-plans/${privatePackage.plan}?recovery=restored`);
