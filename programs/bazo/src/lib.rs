@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked};
+use anchor_spl::token_interface::{self, Mint, MintTo, TokenAccount, TokenInterface, TransferChecked};
 use anchor_spl::token_2022::spl_token_2022::{
     extension::{BaseStateWithExtensions, ExtensionType, StateWithExtensions},
     state::Mint as Token2022Mint,
@@ -18,8 +18,11 @@ pub const MARKET_SEED: &[u8] = b"market";
 pub const PLAN_SEED: &[u8] = b"plan";
 pub const STOCK_VAULT_SEED: &[u8] = b"plan-stock-vault";
 pub const PROCEEDS_VAULT_SEED: &[u8] = b"plan-proceeds-vault";
+pub const DEVNET_STOCK_FAUCET_SEED: &[u8] = b"devnet-stock-faucet";
+pub const DEVNET_STOCK_CLAIM_SEED: &[u8] = b"devnet-stock-claim";
 pub const TERMINAL_DOMAIN: &[u8] = b"BAZO_STAGE_TERMINAL_V1";
 pub const SCALED_UI_AMOUNT_EXTENSION_POLICY: u32 = 1;
+pub const DEVNET_STOCK_CLAIM_RAW_AMOUNT: u64 = 10_000_000;
 
 #[program]
 pub mod bazo {
@@ -139,6 +142,58 @@ pub mod bazo {
             expires_at: plan.expires_at,
             commitment_schema_version: args.commitment_schema_version,
             current_stage_commitment: plan.current_stage_commitment,
+        });
+
+        Ok(())
+    }
+
+    pub fn claim_devnet_stock(ctx: Context<ClaimDevnetStock>) -> Result<()> {
+        let market = &ctx.accounts.market;
+        require!(market.enabled, BazoError::MarketDisabled);
+        require!(
+            market.supported_stock_extensions == SCALED_UI_AMOUNT_EXTENSION_POLICY,
+            BazoError::UnsupportedMintExtensions
+        );
+        validate_stock_mint_extensions(&ctx.accounts.stock_mint.to_account_info())?;
+        require!(
+            ctx.accounts.stock_mint.mint_authority
+                == Some(ctx.accounts.faucet_authority.key()).into(),
+            BazoError::InvalidFaucetAuthority
+        );
+
+        let claim = &mut ctx.accounts.claim;
+        claim.version = PROTOCOL_VERSION;
+        claim.recipient = ctx.accounts.recipient.key();
+        claim.market = market.key();
+        claim.raw_amount = DEVNET_STOCK_CLAIM_RAW_AMOUNT;
+        claim.claimed_at = Clock::get()?.unix_timestamp;
+        claim.bump = ctx.bumps.claim;
+
+        let market_key = market.key();
+        let signer_seeds: &[&[u8]] = &[
+            DEVNET_STOCK_FAUCET_SEED,
+            market_key.as_ref(),
+            &[ctx.bumps.faucet_authority],
+        ];
+        let mint_accounts = MintTo {
+            mint: ctx.accounts.stock_mint.to_account_info(),
+            to: ctx.accounts.recipient_stock_account.to_account_info(),
+            authority: ctx.accounts.faucet_authority.to_account_info(),
+        };
+        token_interface::mint_to(
+            CpiContext::new_with_signer(
+                ctx.accounts.stock_token_program.key(),
+                mint_accounts,
+                &[signer_seeds],
+            ),
+            DEVNET_STOCK_CLAIM_RAW_AMOUNT,
+        )?;
+
+        emit!(DevnetStockClaimed {
+            recipient: claim.recipient,
+            market: claim.market,
+            recipient_stock_account: ctx.accounts.recipient_stock_account.key(),
+            raw_amount: claim.raw_amount,
         });
 
         Ok(())
@@ -266,6 +321,46 @@ pub struct CreatePlan<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct ClaimDevnetStock<'info> {
+    #[account(mut)]
+    pub recipient: Signer<'info>,
+    #[account(
+        has_one = stock_mint @ BazoError::MarketMismatch,
+        constraint = market.enabled @ BazoError::MarketDisabled,
+    )]
+    pub market: Account<'info, Market>,
+    #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)]
+    pub stock_mint: InterfaceAccount<'info, Mint>,
+    #[account(
+        address = market.stock_token_program @ BazoError::MarketMismatch,
+        constraint = stock_token_program.key() == anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram,
+    )]
+    pub stock_token_program: Interface<'info, TokenInterface>,
+    #[account(
+        mut,
+        constraint = recipient_stock_account.owner == recipient.key() @ BazoError::InvalidClaimDestination,
+        constraint = recipient_stock_account.mint == stock_mint.key() @ BazoError::InvalidClaimDestination,
+        constraint = recipient_stock_account.to_account_info().owner == &stock_token_program.key() @ BazoError::InvalidClaimDestination,
+    )]
+    pub recipient_stock_account: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: This PDA is the configured mint authority and signs the Token-2022 CPI.
+    #[account(
+        seeds = [DEVNET_STOCK_FAUCET_SEED, market.key().as_ref()],
+        bump,
+    )]
+    pub faucet_authority: UncheckedAccount<'info>,
+    #[account(
+        init,
+        payer = recipient,
+        space = 8 + DevnetStockClaim::INIT_SPACE,
+        seeds = [DEVNET_STOCK_CLAIM_SEED, market.key().as_ref(), recipient.key().as_ref()],
+        bump,
+    )]
+    pub claim: Account<'info, DevnetStockClaim>,
+    pub system_program: Program<'info, System>,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct ProtocolConfig {
@@ -314,6 +409,17 @@ pub struct Plan {
     pub bump: u8,
 }
 
+#[account]
+#[derive(InitSpace)]
+pub struct DevnetStockClaim {
+    pub version: u16,
+    pub recipient: Pubkey,
+    pub market: Pubkey,
+    pub raw_amount: u64,
+    pub claimed_at: i64,
+    pub bump: u8,
+}
+
 #[event]
 pub struct ProtocolInitialized {
     pub protocol_config: Pubkey,
@@ -340,6 +446,14 @@ pub struct PlanCreated {
     pub expires_at: i64,
     pub commitment_schema_version: u16,
     pub current_stage_commitment: [u8; 32],
+}
+
+#[event]
+pub struct DevnetStockClaimed {
+    pub recipient: Pubkey,
+    pub market: Pubkey,
+    pub recipient_stock_account: Pubkey,
+    pub raw_amount: u64,
 }
 
 #[error_code]
@@ -372,6 +486,10 @@ pub enum BazoError {
     UnsupportedTokenProgram,
     #[msg("The stock mint does not have the required Token-2022 extensions.")]
     UnsupportedMintExtensions,
+    #[msg("The Devnet stock faucet authority does not match the configured mint authority.")]
+    InvalidFaucetAuthority,
+    #[msg("The Devnet stock claim destination is invalid.")]
+    InvalidClaimDestination,
 }
 
 fn validate_stock_mint_extensions(stock_mint: &AccountInfo<'_>) -> Result<()> {

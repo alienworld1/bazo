@@ -244,7 +244,18 @@ export function SellPlanComposer({
     );
   }
   if (holding.rawAmount === '0') {
-    return <EmptySellPlanState />;
+    return (
+      <EmptySellPlanState
+        market={{
+          symbol: market.symbol,
+          stockMint: market.stockMint,
+          quoteMint: market.quoteMint,
+          stockTokenProgram: market.stockTokenProgram,
+        }}
+        programAddress={programAddress}
+        onClaimed={loadHolding}
+      />
+    );
   }
   if (prepared) {
     return <PreparedSellPlanReview prepared={prepared} onBack={() => setPrepared(undefined)} onSeal={() => void sealAndFund()} status={transactionStatus} error={transactionError} />;

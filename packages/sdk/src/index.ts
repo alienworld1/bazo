@@ -13,6 +13,8 @@ export const MARKET_SEED = 'market';
 export const PLAN_SEED = 'plan';
 export const STOCK_VAULT_SEED = 'plan-stock-vault';
 export const PROCEEDS_VAULT_SEED = 'plan-proceeds-vault';
+export const DEVNET_STOCK_FAUCET_SEED = 'devnet-stock-faucet';
+export const DEVNET_STOCK_CLAIM_SEED = 'devnet-stock-claim';
 export const SYSTEM_PROGRAM_ADDRESS = address(
   '11111111111111111111111111111111',
 );
@@ -51,6 +53,20 @@ export type PreparedSellPlanTransaction = Pick<PlanAddresses, 'plan' | 'stockVau
   instruction: Instruction;
 };
 
+export type DevnetStockClaimAddresses = {
+  faucetAuthority: Address;
+  claim: Address;
+};
+
+export type CreateDevnetStockClaimInput = {
+  programAddress: Address;
+  recipient: Address;
+  market: Address;
+  stockMint: Address;
+  stockTokenProgram: Address;
+  recipientStockAccount: Address;
+};
+
 export async function deriveMarketAddress(
   programAddress: Address,
   addresses: MarketAddresses,
@@ -87,6 +103,47 @@ export async function derivePlanAddresses(
     seeds: [encoder.encode(PROCEEDS_VAULT_SEED), addressEncoder.encode(plan)],
   });
   return { plan, stockVault, proceedsVault };
+}
+
+export async function deriveDevnetStockClaimAddresses(
+  input: Pick<CreateDevnetStockClaimInput, 'programAddress' | 'market' | 'recipient'>,
+): Promise<DevnetStockClaimAddresses> {
+  const [faucetAuthority] = await getProgramDerivedAddress({
+    programAddress: input.programAddress,
+    seeds: [
+      encoder.encode(DEVNET_STOCK_FAUCET_SEED),
+      addressEncoder.encode(input.market),
+    ],
+  });
+  const [claim] = await getProgramDerivedAddress({
+    programAddress: input.programAddress,
+    seeds: [
+      encoder.encode(DEVNET_STOCK_CLAIM_SEED),
+      addressEncoder.encode(input.market),
+      addressEncoder.encode(input.recipient),
+    ],
+  });
+  return { faucetAuthority, claim };
+}
+
+export async function createDevnetStockClaimInstruction(
+  input: CreateDevnetStockClaimInput,
+): Promise<Instruction> {
+  const addresses = await deriveDevnetStockClaimAddresses(input);
+  return {
+    programAddress: input.programAddress,
+    accounts: [
+      { address: input.recipient, role: AccountRole.WRITABLE_SIGNER },
+      { address: input.market, role: AccountRole.READONLY },
+      { address: input.stockMint, role: AccountRole.READONLY },
+      { address: input.stockTokenProgram, role: AccountRole.READONLY },
+      { address: input.recipientStockAccount, role: AccountRole.WRITABLE },
+      { address: addresses.faucetAuthority, role: AccountRole.READONLY },
+      { address: addresses.claim, role: AccountRole.WRITABLE },
+      { address: SYSTEM_PROGRAM_ADDRESS, role: AccountRole.READONLY },
+    ],
+    data: await anchorDiscriminator('claim_devnet_stock'),
+  };
 }
 
 export async function createSellPlanInstruction(
