@@ -455,7 +455,7 @@ pub struct CreateBuyRequest<'info> {
 #[derive(Accounts)]
 pub struct CancelBuyRequest<'info> {
     #[account(mut)] pub buyer: Signer<'info>,
-    #[account(mut, has_one = buyer @ BazoError::Unauthorized, has_one = escrow @ BazoError::MarketMismatch)] pub request: Account<'info, BuyRequest>,
+    #[account(mut, has_one = buyer @ BazoError::Unauthorized, has_one = market @ BazoError::MarketMismatch, has_one = escrow @ BazoError::MarketMismatch)] pub request: Account<'info, BuyRequest>,
     #[account(has_one = quote_mint @ BazoError::MarketMismatch)] pub market: Account<'info, Market>,
     #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)] pub quote_mint: InterfaceAccount<'info, Mint>,
     #[account(address = market.quote_token_program @ BazoError::MarketMismatch)] pub quote_token_program: Interface<'info, TokenInterface>,
