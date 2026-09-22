@@ -1,11 +1,25 @@
 import {
   AccountRole,
   address,
+  createSolanaRpc,
   getAddressEncoder,
   getProgramDerivedAddress,
+  isAddress,
+  parseBase64RpcAccount,
   type Address,
   type Instruction,
 } from '@solana/kit';
+import {
+  BUY_REQUEST_ACCOUNT_DATA_LENGTH,
+  decodePublicBuyRequest,
+  type PublicBuyRequest,
+} from './buy-request';
+
+export {
+  BUY_REQUEST_ACCOUNT_DATA_LENGTH,
+  decodePublicBuyRequest,
+  type PublicBuyRequest,
+} from './buy-request';
 
 export const PLAN_VERSION = 1;
 export const COMMITMENT_SCHEMA_VERSION = 1;
@@ -53,7 +67,10 @@ export type CreateSellPlanInput = {
   expiresAt: bigint;
 };
 
-export type PreparedSellPlanTransaction = Pick<PlanAddresses, 'plan' | 'stockVault' | 'proceedsVault'> & {
+export type PreparedSellPlanTransaction = Pick<
+  PlanAddresses,
+  'plan' | 'stockVault' | 'proceedsVault'
+> & {
   instruction: Instruction;
 };
 
@@ -85,9 +102,12 @@ export type CreateBuyRequestInput = {
   buyer: Address;
   recipient: Address;
   market: Address;
+  stockMint: Address;
   quoteMint: Address;
+  stockTokenProgram: Address;
   quoteTokenProgram: Address;
   buyerQuoteAccount: Address;
+  recipientStockAccount: Address;
   requestNonce: bigint;
   requestCommitment: Uint8Array;
   maxQuoteAmount: bigint;
@@ -124,7 +144,10 @@ export async function deriveMarketAddress(
 }
 
 export async function derivePlanAddresses(
-  input: Pick<CreateSellPlanInput, 'programAddress' | 'owner' | 'market' | 'planNonce'>,
+  input: Pick<
+    CreateSellPlanInput,
+    'programAddress' | 'owner' | 'market' | 'planNonce'
+  >,
 ): Promise<Pick<PlanAddresses, 'plan' | 'stockVault' | 'proceedsVault'>> {
   const [plan] = await getProgramDerivedAddress({
     programAddress: input.programAddress,
@@ -147,7 +170,10 @@ export async function derivePlanAddresses(
 }
 
 export async function deriveDevnetStockClaimAddresses(
-  input: Pick<CreateDevnetStockClaimInput, 'programAddress' | 'market' | 'recipient'>,
+  input: Pick<
+    CreateDevnetStockClaimInput,
+    'programAddress' | 'market' | 'recipient'
+  >,
 ): Promise<DevnetStockClaimAddresses> {
   const [faucetAuthority] = await getProgramDerivedAddress({
     programAddress: input.programAddress,
@@ -168,11 +194,19 @@ export async function deriveDevnetStockClaimAddresses(
 }
 
 export async function deriveBuyRequestAddresses(
-  input: Pick<CreateBuyRequestInput, 'programAddress' | 'buyer' | 'requestNonce'>,
+  input: Pick<
+    CreateBuyRequestInput,
+    'programAddress' | 'buyer' | 'requestNonce'
+  >,
 ): Promise<BuyRequestAddresses> {
   const [request] = await getProgramDerivedAddress({
     programAddress: input.programAddress,
-    seeds: [encoder.encode(BUY_REQUEST_SEED), u16(BUY_REQUEST_VERSION), addressEncoder.encode(input.buyer), u64(input.requestNonce)],
+    seeds: [
+      encoder.encode(BUY_REQUEST_SEED),
+      u16(BUY_REQUEST_VERSION),
+      addressEncoder.encode(input.buyer),
+      u64(input.requestNonce),
+    ],
   });
   const [escrow] = await getProgramDerivedAddress({
     programAddress: input.programAddress,
@@ -181,44 +215,179 @@ export async function deriveBuyRequestAddresses(
   return { request, escrow };
 }
 
-export function encodeBuyRequestOpening(opening: BuyRequestOpeningV1): Uint8Array {
-  if (opening.schemaVersion !== 1 || opening.network !== 1 || opening.salt.length !== 32 || opening.targetRawQuantity <= 0n || opening.maxQuoteAmount <= 0n || opening.expiresAt <= 0n || !Number.isInteger(opening.maxPremiumBps) || opening.maxPremiumBps <= -10_000) {
+export async function fetchBuyRequest(input: {
+  rpcUrl: string;
+  programAddress: Address;
+  requestAddress: string;
+}): Promise<PublicBuyRequest | null> {
+  if (!isAddress(input.requestAddress)) return null;
+  const rpc = createSolanaRpc(input.rpcUrl);
+  const account = parseBase64RpcAccount(
+    address(input.requestAddress),
+    (
+      await rpc
+        .getAccountInfo(address(input.requestAddress), { encoding: 'base64' })
+        .send()
+    ).value,
+  );
+  if (
+    !account.exists ||
+    account.programAddress !== input.programAddress ||
+    account.data.length !== BUY_REQUEST_ACCOUNT_DATA_LENGTH
+  )
+    return null;
+  const request = decodePublicBuyRequest(account.data, input.requestAddress);
+  if (
+    !request ||
+    request.status === 'unknown' ||
+    !isAddress(request.escrow) ||
+    BigInt(request.spentQuoteAmount) > BigInt(request.maxQuoteAmount)
+  )
+    return null;
+  const expected = await deriveBuyRequestAddresses({
+    programAddress: input.programAddress,
+    buyer: address(request.buyer),
+    requestNonce: BigInt(request.requestNonce),
+  });
+  return expected.request === address(input.requestAddress) &&
+    expected.escrow === address(request.escrow)
+    ? request
+    : null;
+}
+
+export function encodeBuyRequestOpening(
+  opening: BuyRequestOpeningV1,
+): Uint8Array {
+  if (
+    opening.schemaVersion !== 1 ||
+    opening.network !== 1 ||
+    opening.salt.length !== 32 ||
+    opening.targetRawQuantity <= 0n ||
+    opening.maxQuoteAmount <= 0n ||
+    opening.expiresAt <= 0n ||
+    !Number.isInteger(opening.maxPremiumBps) ||
+    opening.maxPremiumBps <= -10_000
+  ) {
     throw new Error('invalid Buy Request opening');
   }
   return concatBytes(
-    encoder.encode(BUY_REQUEST_COMMITMENT_DOMAIN), u16(opening.schemaVersion), Uint8Array.of(opening.network),
-    new Uint8Array(addressEncoder.encode(opening.request)), new Uint8Array(addressEncoder.encode(opening.buyer)), new Uint8Array(addressEncoder.encode(opening.recipient)), new Uint8Array(addressEncoder.encode(opening.market)),
-    u64(opening.targetRawQuantity), i32(opening.maxPremiumBps), u64(opening.maxQuoteAmount), i64(opening.expiresAt), Uint8Array.of(opening.allowPartialFills ? 1 : 0), u64(opening.requestNonce), opening.salt,
+    encoder.encode(BUY_REQUEST_COMMITMENT_DOMAIN),
+    u16(opening.schemaVersion),
+    Uint8Array.of(opening.network),
+    new Uint8Array(addressEncoder.encode(opening.request)),
+    new Uint8Array(addressEncoder.encode(opening.buyer)),
+    new Uint8Array(addressEncoder.encode(opening.recipient)),
+    new Uint8Array(addressEncoder.encode(opening.market)),
+    u64(opening.targetRawQuantity),
+    i32(opening.maxPremiumBps),
+    u64(opening.maxQuoteAmount),
+    i64(opening.expiresAt),
+    Uint8Array.of(opening.allowPartialFills ? 1 : 0),
+    u64(opening.requestNonce),
+    opening.salt,
   );
 }
 
-export async function hashBuyRequestOpening(opening: BuyRequestOpeningV1): Promise<Uint8Array> {
+export async function hashBuyRequestOpening(
+  opening: BuyRequestOpeningV1,
+): Promise<Uint8Array> {
   const bytes = encodeBuyRequestOpening(opening);
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer));
+  return new Uint8Array(
+    await crypto.subtle.digest(
+      'SHA-256',
+      bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength,
+      ) as ArrayBuffer,
+    ),
+  );
 }
 
-export async function prepareBuyRequest(input: CreateBuyRequestInput): Promise<PreparedBuyRequestTransaction> {
-  if (input.requestCommitment.length !== 32 || input.maxQuoteAmount <= 0n || input.expiresAt <= 0n) throw new Error('invalid Buy Request preparation');
+export async function prepareBuyRequest(
+  input: CreateBuyRequestInput,
+): Promise<PreparedBuyRequestTransaction> {
+  if (
+    input.requestCommitment.length !== 32 ||
+    input.maxQuoteAmount <= 0n ||
+    input.expiresAt <= 0n
+  )
+    throw new Error('invalid Buy Request preparation');
   const addresses = await deriveBuyRequestAddresses(input);
-  const data = concatBytes(await anchorDiscriminator('create_buy_request'), u64(input.requestNonce), input.requestCommitment, u64(input.maxQuoteAmount), i64(input.expiresAt), new Uint8Array(addressEncoder.encode(input.recipient)), u16(COMMITMENT_SCHEMA_VERSION));
+  const data = concatBytes(
+    await anchorDiscriminator('create_buy_request'),
+    u64(input.requestNonce),
+    input.requestCommitment,
+    u64(input.maxQuoteAmount),
+    i64(input.expiresAt),
+    new Uint8Array(addressEncoder.encode(input.recipient)),
+    u16(COMMITMENT_SCHEMA_VERSION),
+  );
   return {
     ...addresses,
-    commitmentFingerprint: toHex(input.requestCommitment.slice(0, 6)) + '…' + toHex(input.requestCommitment.slice(-4)),
+    commitmentFingerprint:
+      toHex(input.requestCommitment.slice(0, 6)) +
+      '…' +
+      toHex(input.requestCommitment.slice(-4)),
     instruction: {
       programAddress: input.programAddress,
       accounts: [
-        { address: input.buyer, role: AccountRole.WRITABLE_SIGNER }, { address: input.market, role: AccountRole.READONLY }, { address: input.quoteMint, role: AccountRole.READONLY }, { address: input.quoteTokenProgram, role: AccountRole.READONLY }, { address: input.buyerQuoteAccount, role: AccountRole.WRITABLE }, { address: addresses.request, role: AccountRole.WRITABLE }, { address: addresses.escrow, role: AccountRole.WRITABLE }, { address: SYSTEM_PROGRAM_ADDRESS, role: AccountRole.READONLY },
-      ], data,
+        { address: input.buyer, role: AccountRole.WRITABLE_SIGNER },
+        { address: input.market, role: AccountRole.READONLY },
+        { address: input.stockMint, role: AccountRole.READONLY },
+        { address: input.quoteMint, role: AccountRole.READONLY },
+        { address: input.stockTokenProgram, role: AccountRole.READONLY },
+        { address: input.quoteTokenProgram, role: AccountRole.READONLY },
+        { address: input.buyerQuoteAccount, role: AccountRole.WRITABLE },
+        { address: input.recipientStockAccount, role: AccountRole.READONLY },
+        { address: addresses.request, role: AccountRole.WRITABLE },
+        { address: addresses.escrow, role: AccountRole.WRITABLE },
+        { address: SYSTEM_PROGRAM_ADDRESS, role: AccountRole.READONLY },
+      ],
+      data,
     },
   };
 }
 
-export async function createBuyRequestInstruction(input: CreateBuyRequestInput): Promise<Instruction> { return (await prepareBuyRequest(input)).instruction; }
+export async function createBuyRequestInstruction(
+  input: CreateBuyRequestInput,
+): Promise<Instruction> {
+  return (await prepareBuyRequest(input)).instruction;
+}
 
-export async function cancelBuyRequestInstruction(input: Pick<CreateBuyRequestInput, 'programAddress' | 'buyer' | 'market' | 'quoteMint' | 'quoteTokenProgram'> & BuyRequestAddresses & { buyerQuoteDestination: Address }): Promise<Instruction> {
-  return { programAddress: input.programAddress, accounts: [
-    { address: input.buyer, role: AccountRole.WRITABLE_SIGNER }, { address: input.request, role: AccountRole.WRITABLE }, { address: input.market, role: AccountRole.READONLY }, { address: input.quoteMint, role: AccountRole.READONLY }, { address: input.quoteTokenProgram, role: AccountRole.READONLY }, { address: input.escrow, role: AccountRole.WRITABLE }, { address: input.buyerQuoteDestination, role: AccountRole.WRITABLE },
-  ], data: await anchorDiscriminator('cancel_buy_request') };
+export async function cancelBuyRequestInstruction(
+  input: Pick<
+    CreateBuyRequestInput,
+    'programAddress' | 'buyer' | 'market' | 'quoteMint' | 'quoteTokenProgram'
+  > &
+    BuyRequestAddresses & { buyerQuoteDestination: Address },
+): Promise<Instruction> {
+  return {
+    programAddress: input.programAddress,
+    accounts: [
+      { address: input.buyer, role: AccountRole.WRITABLE_SIGNER },
+      { address: input.request, role: AccountRole.WRITABLE },
+      { address: input.market, role: AccountRole.READONLY },
+      { address: input.quoteMint, role: AccountRole.READONLY },
+      { address: input.quoteTokenProgram, role: AccountRole.READONLY },
+      { address: input.escrow, role: AccountRole.WRITABLE },
+      { address: input.buyerQuoteDestination, role: AccountRole.WRITABLE },
+    ],
+    data: await anchorDiscriminator('cancel_buy_request'),
+  };
+}
+
+export async function refundBuyRequestInstruction(
+  input: Pick<
+    CreateBuyRequestInput,
+    'programAddress' | 'buyer' | 'market' | 'quoteMint' | 'quoteTokenProgram'
+  > &
+    BuyRequestAddresses & { buyerQuoteDestination: Address },
+): Promise<Instruction> {
+  const instruction = await cancelBuyRequestInstruction(input);
+  return {
+    ...instruction,
+    data: await anchorDiscriminator('refund_buy_request'),
+  };
 }
 
 export async function createDevnetStockClaimInstruction(
@@ -288,7 +457,10 @@ export async function prepareSellPlan(
 
 async function anchorDiscriminator(name: string): Promise<Uint8Array> {
   const bytes = encoder.encode(`global:${name}`);
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)).slice(0, 8);
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)).slice(
+    0,
+    8,
+  );
 }
 
 function u16(value: number): Uint8Array {
@@ -309,10 +481,16 @@ function i64(value: bigint): Uint8Array {
   return bytes;
 }
 
-function i32(value: number): Uint8Array { const bytes = new Uint8Array(4); new DataView(bytes.buffer).setInt32(0, value, true); return bytes; }
+function i32(value: number): Uint8Array {
+  const bytes = new Uint8Array(4);
+  new DataView(bytes.buffer).setInt32(0, value, true);
+  return bytes;
+}
 
 function concatBytes(...values: Uint8Array[]): Uint8Array {
-  const bytes = new Uint8Array(values.reduce((total, value) => total + value.length, 0));
+  const bytes = new Uint8Array(
+    values.reduce((total, value) => total + value.length, 0),
+  );
   let offset = 0;
   for (const value of values) {
     bytes.set(value, offset);
@@ -321,4 +499,8 @@ function concatBytes(...values: Uint8Array[]): Uint8Array {
   return bytes;
 }
 
-function toHex(bytes: Uint8Array): string { return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join(''); }
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join(
+    '',
+  );
+}

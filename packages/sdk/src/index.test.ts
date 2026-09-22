@@ -5,6 +5,7 @@ import {
   deriveDevnetStockClaimAddresses,
   encodeBuyRequestOpening,
   hashBuyRequestOpening,
+  prepareBuyRequest,
 } from './index';
 
 const programAddress = address('6e35GBMnuKLhWCJe3qmzWuJbN9L6XCTMPvAx5hgXLagb');
@@ -14,7 +15,13 @@ const stockMint = address('3bEb8QPW7edXzvcm1udGcRjr6NfpbvyXrwAdK5upXUTQ');
 const stockTokenProgram = address(
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
 );
-const recipientStockAccount = address('6qxP3oSzZRfAC3eekfVF8ptXh392nsSsPfLZQszMnDRJ');
+const recipientStockAccount = address(
+  '6qxP3oSzZRfAC3eekfVF8ptXh392nsSsPfLZQszMnDRJ',
+);
+const quoteMint = address('EDJpD3ngqiy5ZhWZjDNYZDzCuTvkW42ea72X6TAuDeL3');
+const buyerQuoteAccount = address(
+  'ACFropKYtyPiD1amyb4Z4hrTDYUyWTMVFinpfvq9a3Qr',
+);
 
 describe('Devnet stock claim instruction', () => {
   it('derives a market-bound faucet and one-claim receipt', async () => {
@@ -83,10 +90,54 @@ describe('Buy Request commitment', () => {
   });
 
   it('rejects an invalid private opening and changes the hash when a bound field changes', async () => {
-    expect(() => encodeBuyRequestOpening({ ...opening, maxPremiumBps: -10_000 })).toThrow();
-    expect(toHex(await hashBuyRequestOpening({ ...opening, allowPartialFills: false }))).not.toBe(
-      toHex(await hashBuyRequestOpening(opening)),
+    expect(() =>
+      encodeBuyRequestOpening({ ...opening, maxPremiumBps: -10_000 }),
+    ).toThrow();
+    expect(
+      toHex(
+        await hashBuyRequestOpening({ ...opening, allowPartialFills: false }),
+      ),
+    ).not.toBe(toHex(await hashBuyRequestOpening(opening)));
+  });
+});
+
+describe('funded Buy Request instruction', () => {
+  it('includes the validated stock recipient and quote custody accounts in program order', async () => {
+    const prepared = await prepareBuyRequest({
+      programAddress,
+      buyer: recipient,
+      recipient,
+      market,
+      stockMint,
+      quoteMint,
+      stockTokenProgram,
+      quoteTokenProgram: stockTokenProgram,
+      buyerQuoteAccount,
+      recipientStockAccount,
+      requestNonce: 43n,
+      requestCommitment: new Uint8Array(32).fill(7),
+      maxQuoteAmount: 10_000_000n,
+      expiresAt: 1_800_000_000n,
+    });
+    expect(
+      prepared.instruction.accounts.map(account => account.address),
+    ).toEqual([
+      recipient,
+      market,
+      stockMint,
+      quoteMint,
+      stockTokenProgram,
+      stockTokenProgram,
+      buyerQuoteAccount,
+      recipientStockAccount,
+      prepared.request,
+      prepared.escrow,
+      address('11111111111111111111111111111111'),
+    ]);
+    expect(prepared.instruction.accounts[0]?.role).toBe(
+      AccountRole.WRITABLE_SIGNER,
     );
+    expect(prepared.instruction.accounts[7]?.role).toBe(AccountRole.READONLY);
   });
 });
 

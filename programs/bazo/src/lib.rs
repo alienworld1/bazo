@@ -15,6 +15,7 @@ pub const DEVNET_NETWORK_ID: u8 = 1;
 pub const STATUS_ACTIVE: u8 = 1;
 pub const BUY_REQUEST_VERSION: u16 = 1;
 pub const STATUS_CANCELED: u8 = 2;
+pub const STATUS_EXPIRED: u8 = 3;
 pub const PROTOCOL_CONFIG_SEED: &[u8] = b"protocol";
 pub const MARKET_SEED: &[u8] = b"market";
 pub const PLAN_SEED: &[u8] = b"plan";
@@ -211,6 +212,8 @@ pub mod bazo {
         require!(!is_zero_commitment(&args.request_commitment), BazoError::InvalidBuyRequestCommitment);
         let market = &ctx.accounts.market;
         require!(market.enabled, BazoError::MarketDisabled);
+        require!(market.stock_mint == ctx.accounts.stock_mint.key(), BazoError::MarketMismatch);
+        require!(market.stock_token_program == ctx.accounts.stock_token_program.key(), BazoError::MarketMismatch);
         require!(market.quote_mint == ctx.accounts.quote_mint.key(), BazoError::MarketMismatch);
         require!(market.quote_token_program == ctx.accounts.quote_token_program.key(), BazoError::MarketMismatch);
         require!(ctx.accounts.buyer_quote_account.amount >= args.max_quote_amount, BazoError::InsufficientQuote);
@@ -264,6 +267,22 @@ pub mod bazo {
         let transfer_accounts = TransferChecked { from: ctx.accounts.escrow.to_account_info(), mint: ctx.accounts.quote_mint.to_account_info(), to: ctx.accounts.buyer_quote_destination.to_account_info(), authority: request.to_account_info() };
         token_interface::transfer_checked(CpiContext::new_with_signer(ctx.accounts.quote_token_program.key(), transfer_accounts, &[signer_seeds]), refundable, ctx.accounts.quote_mint.decimals)?;
         emit!(BuyRequestCanceled { request: request_key, buyer: request.buyer, refunded_quote_amount: refundable });
+        Ok(())
+    }
+
+    pub fn refund_buy_request(ctx: Context<CancelBuyRequest>) -> Result<()> {
+        let request = &mut ctx.accounts.request;
+        require!(request.status == STATUS_ACTIVE, BazoError::BuyRequestNotActive);
+        require!(request.locked_batch.is_none(), BazoError::BuyRequestLocked);
+        require!(Clock::get()?.unix_timestamp >= request.expires_at, BazoError::BuyRequestNotExpired);
+        let refundable = request.max_quote_amount.checked_sub(request.spent_quote_amount).ok_or(BazoError::EscrowAccountingMismatch)?;
+        require!(refundable > 0 && ctx.accounts.escrow.amount == refundable, BazoError::EscrowAccountingMismatch);
+        request.status = STATUS_EXPIRED;
+        request.refundable_quote_amount = 0;
+        let signer_seeds: &[&[u8]] = &[BUY_REQUEST_SEED, &BUY_REQUEST_VERSION.to_le_bytes(), request.buyer.as_ref(), &request.request_nonce.to_le_bytes(), &[request.bump]];
+        let transfer_accounts = TransferChecked { from: ctx.accounts.escrow.to_account_info(), mint: ctx.accounts.quote_mint.to_account_info(), to: ctx.accounts.buyer_quote_destination.to_account_info(), authority: request.to_account_info() };
+        token_interface::transfer_checked(CpiContext::new_with_signer(ctx.accounts.quote_token_program.key(), transfer_accounts, &[signer_seeds]), refundable, ctx.accounts.quote_mint.decimals)?;
+        emit!(BuyRequestRefunded { request: request.key(), buyer: request.buyer, refunded_quote_amount: refundable });
         Ok(())
     }
 }
@@ -443,10 +462,13 @@ pub struct ClaimDevnetStock<'info> {
 #[instruction(args: CreateBuyRequestArgs)]
 pub struct CreateBuyRequest<'info> {
     #[account(mut)] pub buyer: Signer<'info>,
-    #[account(has_one = quote_mint @ BazoError::MarketMismatch, constraint = market.enabled @ BazoError::MarketDisabled)] pub market: Account<'info, Market>,
+    #[account(has_one = stock_mint @ BazoError::MarketMismatch, has_one = quote_mint @ BazoError::MarketMismatch, constraint = market.enabled @ BazoError::MarketDisabled, seeds = [MARKET_SEED, stock_mint.key().as_ref(), quote_mint.key().as_ref()], bump = market.bump)] pub market: Account<'info, Market>,
+    #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)] pub stock_mint: InterfaceAccount<'info, Mint>,
     #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)] pub quote_mint: InterfaceAccount<'info, Mint>,
+    #[account(address = market.stock_token_program @ BazoError::MarketMismatch, constraint = stock_token_program.key() == anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)] pub stock_token_program: Interface<'info, TokenInterface>,
     #[account(address = market.quote_token_program @ BazoError::MarketMismatch, constraint = quote_token_program.key() == anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)] pub quote_token_program: Interface<'info, TokenInterface>,
     #[account(mut, constraint = buyer_quote_account.owner == buyer.key() @ BazoError::InvalidQuoteSource, constraint = buyer_quote_account.mint == quote_mint.key() @ BazoError::InvalidQuoteSource, constraint = buyer_quote_account.to_account_info().owner == &quote_token_program.key() @ BazoError::InvalidQuoteSource)] pub buyer_quote_account: InterfaceAccount<'info, TokenAccount>,
+    #[account(constraint = recipient_stock_account.owner == args.recipient @ BazoError::InvalidStockRecipient, constraint = recipient_stock_account.mint == stock_mint.key() @ BazoError::InvalidStockRecipient, constraint = recipient_stock_account.to_account_info().owner == &stock_token_program.key() @ BazoError::InvalidStockRecipient)] pub recipient_stock_account: InterfaceAccount<'info, TokenAccount>,
     #[account(init, payer = buyer, space = 8 + BuyRequest::INIT_SPACE, seeds = [BUY_REQUEST_SEED, &BUY_REQUEST_VERSION.to_le_bytes(), buyer.key().as_ref(), &args.request_nonce.to_le_bytes()], bump)] pub request: Account<'info, BuyRequest>,
     #[account(init, payer = buyer, seeds = [BUY_ESCROW_SEED, request.key().as_ref()], bump, token::mint = quote_mint, token::authority = request, token::token_program = quote_token_program)] pub escrow: InterfaceAccount<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
@@ -584,6 +606,8 @@ pub struct DevnetStockClaimed {
 pub struct BuyRequestCreated { pub request: Pubkey, pub buyer: Pubkey, pub recipient: Pubkey, pub market: Pubkey, pub escrow: Pubkey, pub max_quote_amount: u64, pub expires_at: i64, pub request_commitment: [u8; 32] }
 #[event]
 pub struct BuyRequestCanceled { pub request: Pubkey, pub buyer: Pubkey, pub refunded_quote_amount: u64 }
+#[event]
+pub struct BuyRequestRefunded { pub request: Pubkey, pub buyer: Pubkey, pub refunded_quote_amount: u64 }
 
 #[error_code]
 pub enum BazoError {
@@ -622,11 +646,13 @@ pub enum BazoError {
     #[msg("The quote amount is invalid.")] InvalidQuoteAmount,
     #[msg("The quote source account is invalid.")] InvalidQuoteSource,
     #[msg("The quote destination account is invalid.")] InvalidQuoteDestination,
+    #[msg("The stock recipient account is invalid.")] InvalidStockRecipient,
     #[msg("The quote source account does not have enough balance.")] InsufficientQuote,
     #[msg("The Buy Request expiry must be in the future.")] ExpiredBuyRequest,
     #[msg("The Buy Request commitment is invalid.")] InvalidBuyRequestCommitment,
     #[msg("The Buy Request is not active.")] BuyRequestNotActive,
     #[msg("The Buy Request is locked for matching.")] BuyRequestLocked,
+    #[msg("The Buy Request has not expired yet.")] BuyRequestNotExpired,
     #[msg("The escrow accounting does not match the token balance.")] EscrowAccountingMismatch,
 }
 
