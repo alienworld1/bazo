@@ -1,4 +1,4 @@
-import { lstat, mkdir, open, readFile, rename, stat } from 'node:fs/promises';
+import { link, lstat, mkdir, open, readFile, rename, stat, unlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import type { PrivatePlanBlobRecordV1 } from '@bazo/plan-crypto';
 import { parsePrivatePlanBlobRecord, serializePrivatePlanBlobRecord } from '@bazo/plan-crypto';
@@ -22,8 +22,19 @@ export class LocalPrivatePlanBlobAdapter {
       const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
       const handle = await open(temporary, 'wx', 0o600);
       try { await handle.writeFile(serializePrivatePlanBlobRecord(record), 'utf8'); await handle.sync(); } finally { await handle.close(); }
-      try { await stat(file); } catch { /* Initial write has no existing revision to replace. */ }
-      await rename(temporary, file);
+      if (!existing) {
+        try { await link(temporary, file); } catch {
+          await unlink(temporary).catch(() => undefined);
+          const raced = await this.get(record.owner, record.plan);
+          return raced?.ciphertextHash === record.ciphertextHash
+            ? { kind: 'idempotent' as const, record: raced }
+            : { kind: 'conflict' as const, record: raced };
+        }
+        await unlink(temporary);
+      } else {
+        try { await stat(file); } catch { return { kind: 'conflict' as const }; }
+        await rename(temporary, file);
+      }
       return { kind: 'saved' as const, record };
     });
   }
