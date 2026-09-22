@@ -115,5 +115,5 @@ export async function readSpendableQuoteBalance(
     return { address: account.pubkey, rawAmount: decoded.data.amount.toString() };
   });
   const source = accounts.reduce<(typeof accounts)[number] | undefined>((largest, current) => !largest || BigInt(current.rawAmount) > BigInt(largest.rawAmount) ? current : largest, undefined);
-  return { rawAmount: aggregateRawAmounts(accounts.map(account => account.rawAmount)), sourceTokenAccount: source?.address ?? null, decimals: mintAccount.data.decimals };
+  return { rawAmount: source?.rawAmount ?? '0', sourceTokenAccount: source?.address ?? null, decimals: mintAccount.data.decimals };
 }
