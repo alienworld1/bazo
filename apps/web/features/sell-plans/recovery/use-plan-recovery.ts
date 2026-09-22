@@ -266,6 +266,8 @@ function recoveryError(cause: unknown) {
   const message = cause instanceof Error ? cause.message : '';
   if (message === 'storage_conflict')
     return 'A newer private copy is already saved. Reload it before trying again.';
+  if (message === 'storage_not_configured')
+    return 'Private-copy saving isn’t configured on this server. Download an encrypted backup to protect this Plan.';
   if (message === 'wallet_changed')
     return 'Reconnect the wallet that owns this Sell Plan.';
   if (message.includes('wallet recovery key decryption'))

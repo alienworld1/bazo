@@ -9,6 +9,7 @@ const navigation = [
   { href: '/markets', label: 'Markets' },
   { href: '/sell-plans/new', label: 'Create plan' },
   { href: '/activity', label: 'Activity' },
+  { href: '/settings/security', label: 'Security' },
 ];
 
 export function TopNavigation() {

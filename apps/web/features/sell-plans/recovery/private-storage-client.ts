@@ -54,7 +54,14 @@ export async function authenticatePrivateStorage(
     cache: 'no-store',
     signal,
   });
-  if (!challengeResponse.ok) throw new Error('storage_unavailable');
+  if (!challengeResponse.ok) {
+    const error = await responseCode(challengeResponse);
+    throw new Error(
+      error === 'private_storage_unavailable'
+        ? 'storage_not_configured'
+        : 'storage_unavailable',
+    );
+  }
   const challenge = (await challengeResponse.json()) as {
     challengeId: string;
     message: string;
@@ -126,4 +133,13 @@ function encodeBase64Url(value: Uint8Array) {
     .replaceAll('+', '-')
     .replaceAll('/', '_')
     .replace(/=+$/, '');
+}
+
+async function responseCode(response: Response) {
+  try {
+    const body = (await response.json()) as { code?: unknown };
+    return typeof body.code === 'string' ? body.code : undefined;
+  } catch {
+    return undefined;
+  }
 }
