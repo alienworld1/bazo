@@ -330,7 +330,7 @@ pub struct ClaimDevnetStock<'info> {
         constraint = market.enabled @ BazoError::MarketDisabled,
     )]
     pub market: Account<'info, Market>,
-    #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)]
+    #[account(mut, owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)]
     pub stock_mint: InterfaceAccount<'info, Mint>,
     #[account(
         address = market.stock_token_program @ BazoError::MarketMismatch,

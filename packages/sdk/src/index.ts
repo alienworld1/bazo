@@ -135,7 +135,7 @@ export async function createDevnetStockClaimInstruction(
     accounts: [
       { address: input.recipient, role: AccountRole.WRITABLE_SIGNER },
       { address: input.market, role: AccountRole.READONLY },
-      { address: input.stockMint, role: AccountRole.READONLY },
+      { address: input.stockMint, role: AccountRole.WRITABLE },
       { address: input.stockTokenProgram, role: AccountRole.READONLY },
       { address: input.recipientStockAccount, role: AccountRole.WRITABLE },
       { address: addresses.faucetAuthority, role: AccountRole.READONLY },

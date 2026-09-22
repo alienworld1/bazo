@@ -1,4 +1,4 @@
-import { address } from '@solana/kit';
+import { AccountRole, address } from '@solana/kit';
 import { describe, expect, it } from 'vitest';
 import {
   createDevnetStockClaimInstruction,
@@ -52,5 +52,6 @@ describe('Devnet stock claim instruction', () => {
     expect(instruction.data).toEqual(
       new Uint8Array([106, 29, 227, 149, 108, 175, 167, 50]),
     );
+    expect(instruction.accounts[2]?.role).toBe(AccountRole.WRITABLE);
   });
 });
