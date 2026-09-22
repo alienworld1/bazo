@@ -87,7 +87,7 @@ export function DevnetStockClaim({
         Get stock for Devnet
       </h2>
       <p className="mt-2 text-sm text-text-secondary">
-        Claim 10 {marketSymbol} stock once to explore Sell Plans. This is a Devnet
+        Claim {marketSymbol} stock once to explore Sell Plans. This is a Devnet
         test asset and is not issuer-backed.
       </p>
       <button
