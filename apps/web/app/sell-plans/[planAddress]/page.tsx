@@ -13,10 +13,14 @@ export default async function SellPlanDetailPage({
   searchParams,
 }: {
   params: Promise<{ planAddress: string }>;
-  searchParams: Promise<{ reconciliation?: string; signature?: string }>;
+  searchParams: Promise<{
+    reconciliation?: string;
+    recovery?: string;
+    signature?: string;
+  }>;
 }) {
   const { planAddress } = await params;
-  const { reconciliation, signature } = await searchParams;
+  const { reconciliation, recovery, signature } = await searchParams;
   const plan = await readPublicSellPlan(planAddress);
   if (!plan) notFound();
 
@@ -36,15 +40,34 @@ export default async function SellPlanDetailPage({
         </p>
         {reconciliation === 'mismatch' ? (
           <p className="mt-4 text-sm text-warning" role="alert">
-            Your transaction was confirmed, but the Plan details don&apos;t match
-            this browser&apos;s prepared copy. Your stock remains governed by the
-            onchain Plan.
+            Your transaction was confirmed, but the Plan details don&apos;t
+            match this browser&apos;s prepared copy. Your stock remains governed
+            by the onchain Plan.
           </p>
         ) : null}
+        {recovery === 'restored' ? (
+          <div className="mt-4" aria-live="polite">
+            <p className="text-sm font-medium text-text-primary">
+              Backup restored and verified
+            </p>
+            <p className="mt-1 text-sm text-text-secondary">
+              The private details match the current onchain Plan.
+            </p>
+          </div>
+        ) : null}
         <dl className="mt-8 space-y-4 text-sm">
-          <PlanFact label="Active Stage" value={`Stage ${plan.currentStageIndex + 1}`} />
-          <PlanFact label="Remaining" value={`${plan.remainingRawInventory} raw`} />
-          <PlanFact label="Total committed" value={`${plan.initialRawInventory} raw`} />
+          <PlanFact
+            label="Active Stage"
+            value={`Stage ${plan.currentStageIndex + 1}`}
+          />
+          <PlanFact
+            label="Remaining"
+            value={`${plan.remainingRawInventory} raw`}
+          />
+          <PlanFact
+            label="Total committed"
+            value={`${plan.initialRawInventory} raw`}
+          />
           <PlanFact label="Future path" value="SEALED" />
           <PlanFact label="Created" value={plan.createdAt} />
           <PlanFact label="Plan ends" value={plan.expiresAt} />
@@ -61,15 +84,26 @@ export default async function SellPlanDetailPage({
             <PlanFact label="Market" value={plan.market} />
             <PlanFact label="Stock vault" value={plan.stockVault} />
             <PlanFact label="Proceeds vault" value={plan.proceedsVault} />
-            <PlanFact label="Current commitment" value={plan.currentCommitmentFingerprint} />
-            {signature ? <PlanFact label="Transaction" value={signature} /> : null}
+            <PlanFact
+              label="Current commitment"
+              value={plan.currentCommitmentFingerprint}
+            />
+            {signature ? (
+              <PlanFact label="Transaction" value={signature} />
+            ) : null}
           </dl>
         </details>
         <div className="mt-8 flex gap-4">
-          <Link className="min-h-11 text-sm text-text-primary underline" href="/portfolio">
+          <Link
+            className="min-h-11 text-sm text-text-primary underline"
+            href="/portfolio"
+          >
             Back to portfolio
           </Link>
-          <Link className="min-h-11 text-sm text-text-primary underline" href="/markets">
+          <Link
+            className="min-h-11 text-sm text-text-primary underline"
+            href="/markets"
+          >
             View market
           </Link>
         </div>
