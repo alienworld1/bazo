@@ -10,10 +10,12 @@
     "dev": "pnpm --filter web dev",
     "lint": "pnpm --filter web lint",
     "typecheck": "pnpm --filter web typecheck",
-    "test": "pnpm --filter web test",
+    "test": "pnpm --filter web test && pnpm test:sdk",
+    "test:sdk": "pnpm --filter web exec vitest run --root ../../packages/sdk",
     "build": "pnpm --filter web build",
     "format": "prettier --write",
     "setup:devnet": "node scripts/setup-devnet.cjs",
-    "fixture:plan": "node scripts/create-devnet-fixture-plan.cjs"
+    "fixture:plan": "node scripts/create-devnet-fixture-plan.cjs",
+    "fixture:buy-request": "node scripts/create-devnet-fixture-buy-request.cjs"
   }
 }
