@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCommitmentChain, createBackup, decryptPlanPackage, encryptPlanPackage, parseBackup, parsePrivatePlanPackage, serializeBackup, serializePrivatePlanPackage, unlockBackup, verifyRestoredPackage } from '@bazo/plan-crypto';
+import { buildCommitmentChain, createBackup, decryptPlanPackage, encryptPlanPackage, parseBackup, parsePrivatePlanPackage, serializeBackup, serializePrivatePlanPackage, unlockBackup, unwrapPlanKeyWithWalletSignature, verifyRestoredPackage, wrapPlanKeyWithWalletSignature } from '@bazo/plan-crypto';
 
 const plan = '11111111111111111111111111111111';
 const market = 'SysvarC1ock11111111111111111111111111111111';
@@ -27,5 +27,13 @@ describe('private Plan recovery', () => {
     const unlocked = await unlockBackup(parsed, 'a long recovery passphrase');
     await verifyRestoredPackage(unlocked.package, { address: plan, owner, market, currentStageIndex: 1, currentCommitment: Array.from(privatePackage.stages[1]!.commitment, byte => byte.toString(16).padStart(2, '0')).join(''), initialRawInventory: '10' });
     await expect(unlockBackup(parsed, 'a different recovery passphrase')).rejects.toThrow();
+  });
+
+  it('derives wallet wrapping keys through a Plan-bound KDF', async () => {
+    const key = new Uint8Array(32).fill(3);
+    const signature = new Uint8Array(64).fill(7);
+    const wrapped = await wrapPlanKeyWithWalletSignature(key, signature, owner, plan);
+    await expect(unwrapPlanKeyWithWalletSignature(wrapped, signature, owner, plan)).resolves.toEqual(key);
+    await expect(unwrapPlanKeyWithWalletSignature(wrapped, new Uint8Array(64).fill(8), owner, plan)).rejects.toThrow();
   });
 });

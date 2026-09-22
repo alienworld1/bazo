@@ -35,7 +35,7 @@ async function ownerAccess(request: Request, context: { params: Promise<{ planAd
   return plan?.owner === owner ? { config, owner, plan } : undefined;
 }
 
-function withServerTimestamps(record: PrivatePlanBlobRecordV1): PrivatePlanBlobRecordV1 { const now = new Date().toISOString(); return { ...record, createdAt: record.createdAt || now, updatedAt: now }; }
+function withServerTimestamps(record: PrivatePlanBlobRecordV1): PrivatePlanBlobRecordV1 { const now = new Date().toISOString(); return { ...record, createdAt: now, updatedAt: now }; }
 function hiddenNotFound() { return NextResponse.json({ code: 'private_copy_not_found' }, { status: 404, headers: noStore }); }
 function sameOrigin(request: Request) { const origin = request.headers.get('origin'); return !origin || origin === new URL(request.url).origin; }
 const noStore = { 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' };
