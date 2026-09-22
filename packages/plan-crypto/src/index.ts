@@ -1,4 +1,5 @@
 import { getBase58Encoder } from '@solana/codecs-strings';
+export * from './recovery';
 
 export const COMMITMENT_SCHEMA_VERSION = 1;
 export const DEVNET_NETWORK_ID = 1;

@@ -167,6 +167,15 @@ export function SellPlanComposer({
         expiresAt: new Date(expiry).toLocaleString(),
         expiresAtUnix: String(Math.floor(new Date(expiry).getTime() / 1_000)),
         headCommitmentBytes: chain.headCommitment,
+        privatePackage: {
+          packageVersion: 1,
+          plan: addresses.plan,
+          market: marketAddress,
+          owner,
+          commitmentSchemaVersion: 1,
+          stages: chain.stages,
+          createdAt: Math.floor(Date.now() / 1_000),
+        },
       });
     } finally {
       setPreparing(false);
@@ -210,6 +219,7 @@ export function SellPlanComposer({
       if (reconciled) {
         rememberPrivatePlan(prepared.plan, {
           owner,
+          package: prepared.privatePackage,
           stages: stages.map((stage, index) => ({
             index,
             rawQuantity: allocations?.[index]?.rawQuantity.toString() ?? '0',

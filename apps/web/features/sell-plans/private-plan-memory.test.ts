@@ -5,6 +5,7 @@ describe('private Sell Plan memory', () => {
   it('returns private Stage previews only to their preparing owner', () => {
     rememberPrivatePlan('plan-address', {
       owner: 'owner-address',
+      package: {} as never,
       stages: [{ index: 0, rawQuantity: '1', minPremiumBps: 50, allowedSessions: ['regular'] }],
     });
 
