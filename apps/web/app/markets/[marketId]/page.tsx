@@ -35,6 +35,7 @@ export default async function MarketDetailPage({
         >
           Create a Sell Plan
         </Link>
+        <Link href={`/buy?market=${market.id}`} className="mt-6 ml-3 inline-flex min-h-11 items-center rounded border border-line-default px-4 text-sm text-text-primary hover:border-focus">Buy {market.symbol}</Link>
         <section className="mt-10 grid gap-10 border-y border-line-default py-8 md:grid-cols-2">
           <div>
             <h2 className="text-sm font-medium text-text-primary">

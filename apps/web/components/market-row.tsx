@@ -28,6 +28,7 @@ export function MarketRow({ market }: { market: PublicMarket }) {
         >
           Create plan
         </Link>
+        <Link href={`/buy?market=${market.id}`} className="inline-flex min-h-11 items-center justify-center rounded border border-line-default px-4 text-sm text-text-primary hover:border-focus">Buy</Link>
       </div>
     </article>
   );

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   createDevnetStockClaimInstruction,
   deriveDevnetStockClaimAddresses,
+  encodeBuyRequestOpening,
+  hashBuyRequestOpening,
 } from './index';
 
 const programAddress = address('6e35GBMnuKLhWCJe3qmzWuJbN9L6XCTMPvAx5hgXLagb');
@@ -55,3 +57,39 @@ describe('Devnet stock claim instruction', () => {
     expect(instruction.accounts[2]?.role).toBe(AccountRole.WRITABLE);
   });
 });
+
+describe('Buy Request commitment', () => {
+  const opening = {
+    schemaVersion: 1 as const,
+    network: 1 as const,
+    request: address('11111111111111111111111111111111'),
+    buyer: address('SysvarC1ock11111111111111111111111111111111'),
+    recipient: address('SysvarRent111111111111111111111111111111111'),
+    market: address('Stake11111111111111111111111111111111111111'),
+    targetRawQuantity: 2_500_001n,
+    maxPremiumBps: 100,
+    maxQuoteAmount: 7_500_000n,
+    expiresAt: 1_800_000_000n,
+    allowPartialFills: true,
+    requestNonce: 42n,
+    salt: new Uint8Array(32).fill(7),
+  };
+
+  it('matches the Rust golden hash without encoding display values', async () => {
+    expect(encodeBuyRequestOpening(opening)).toHaveLength(219);
+    expect(toHex(await hashBuyRequestOpening(opening))).toBe(
+      'deb9b59583c806ea7c9674ba7dc02e9cbac549dbb92d3b238f2ce10e27c2c1c2',
+    );
+  });
+
+  it('rejects an invalid private opening and changes the hash when a bound field changes', async () => {
+    expect(() => encodeBuyRequestOpening({ ...opening, maxPremiumBps: -10_000 })).toThrow();
+    expect(toHex(await hashBuyRequestOpening({ ...opening, allowPartialFills: false }))).not.toBe(
+      toHex(await hashBuyRequestOpening(opening)),
+    );
+  });
+});
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+}

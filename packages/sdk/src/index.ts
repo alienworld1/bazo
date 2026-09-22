@@ -15,6 +15,10 @@ export const STOCK_VAULT_SEED = 'plan-stock-vault';
 export const PROCEEDS_VAULT_SEED = 'plan-proceeds-vault';
 export const DEVNET_STOCK_FAUCET_SEED = 'devnet-stock-faucet';
 export const DEVNET_STOCK_CLAIM_SEED = 'devnet-stock-claim';
+export const BUY_REQUEST_VERSION = 1;
+export const BUY_REQUEST_SEED = 'buy-request';
+export const BUY_ESCROW_SEED = 'buy-escrow';
+export const BUY_REQUEST_COMMITMENT_DOMAIN = 'BAZO_BUY_REQUEST_V1';
 export const SYSTEM_PROGRAM_ADDRESS = address(
   '11111111111111111111111111111111',
 );
@@ -56,6 +60,43 @@ export type PreparedSellPlanTransaction = Pick<PlanAddresses, 'plan' | 'stockVau
 export type DevnetStockClaimAddresses = {
   faucetAuthority: Address;
   claim: Address;
+};
+
+export type BuyRequestAddresses = { request: Address; escrow: Address };
+
+export type BuyRequestOpeningV1 = {
+  schemaVersion: 1;
+  network: 1;
+  request: Address;
+  buyer: Address;
+  recipient: Address;
+  market: Address;
+  targetRawQuantity: bigint;
+  maxPremiumBps: number;
+  maxQuoteAmount: bigint;
+  expiresAt: bigint;
+  allowPartialFills: boolean;
+  requestNonce: bigint;
+  salt: Uint8Array;
+};
+
+export type CreateBuyRequestInput = {
+  programAddress: Address;
+  buyer: Address;
+  recipient: Address;
+  market: Address;
+  quoteMint: Address;
+  quoteTokenProgram: Address;
+  buyerQuoteAccount: Address;
+  requestNonce: bigint;
+  requestCommitment: Uint8Array;
+  maxQuoteAmount: bigint;
+  expiresAt: bigint;
+};
+
+export type PreparedBuyRequestTransaction = BuyRequestAddresses & {
+  instruction: Instruction;
+  commitmentFingerprint: string;
 };
 
 export type CreateDevnetStockClaimInput = {
@@ -124,6 +165,60 @@ export async function deriveDevnetStockClaimAddresses(
     ],
   });
   return { faucetAuthority, claim };
+}
+
+export async function deriveBuyRequestAddresses(
+  input: Pick<CreateBuyRequestInput, 'programAddress' | 'buyer' | 'requestNonce'>,
+): Promise<BuyRequestAddresses> {
+  const [request] = await getProgramDerivedAddress({
+    programAddress: input.programAddress,
+    seeds: [encoder.encode(BUY_REQUEST_SEED), u16(BUY_REQUEST_VERSION), addressEncoder.encode(input.buyer), u64(input.requestNonce)],
+  });
+  const [escrow] = await getProgramDerivedAddress({
+    programAddress: input.programAddress,
+    seeds: [encoder.encode(BUY_ESCROW_SEED), addressEncoder.encode(request)],
+  });
+  return { request, escrow };
+}
+
+export function encodeBuyRequestOpening(opening: BuyRequestOpeningV1): Uint8Array {
+  if (opening.schemaVersion !== 1 || opening.network !== 1 || opening.salt.length !== 32 || opening.targetRawQuantity <= 0n || opening.maxQuoteAmount <= 0n || opening.expiresAt <= 0n || !Number.isInteger(opening.maxPremiumBps) || opening.maxPremiumBps <= -10_000) {
+    throw new Error('invalid Buy Request opening');
+  }
+  return concatBytes(
+    encoder.encode(BUY_REQUEST_COMMITMENT_DOMAIN), u16(opening.schemaVersion), Uint8Array.of(opening.network),
+    new Uint8Array(addressEncoder.encode(opening.request)), new Uint8Array(addressEncoder.encode(opening.buyer)), new Uint8Array(addressEncoder.encode(opening.recipient)), new Uint8Array(addressEncoder.encode(opening.market)),
+    u64(opening.targetRawQuantity), i32(opening.maxPremiumBps), u64(opening.maxQuoteAmount), i64(opening.expiresAt), Uint8Array.of(opening.allowPartialFills ? 1 : 0), u64(opening.requestNonce), opening.salt,
+  );
+}
+
+export async function hashBuyRequestOpening(opening: BuyRequestOpeningV1): Promise<Uint8Array> {
+  const bytes = encodeBuyRequestOpening(opening);
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer));
+}
+
+export async function prepareBuyRequest(input: CreateBuyRequestInput): Promise<PreparedBuyRequestTransaction> {
+  if (input.requestCommitment.length !== 32 || input.maxQuoteAmount <= 0n || input.expiresAt <= 0n) throw new Error('invalid Buy Request preparation');
+  const addresses = await deriveBuyRequestAddresses(input);
+  const data = concatBytes(await anchorDiscriminator('create_buy_request'), u64(input.requestNonce), input.requestCommitment, u64(input.maxQuoteAmount), i64(input.expiresAt), new Uint8Array(addressEncoder.encode(input.recipient)), u16(COMMITMENT_SCHEMA_VERSION));
+  return {
+    ...addresses,
+    commitmentFingerprint: toHex(input.requestCommitment.slice(0, 6)) + '…' + toHex(input.requestCommitment.slice(-4)),
+    instruction: {
+      programAddress: input.programAddress,
+      accounts: [
+        { address: input.buyer, role: AccountRole.WRITABLE_SIGNER }, { address: input.market, role: AccountRole.READONLY }, { address: input.quoteMint, role: AccountRole.READONLY }, { address: input.quoteTokenProgram, role: AccountRole.READONLY }, { address: input.buyerQuoteAccount, role: AccountRole.WRITABLE }, { address: addresses.request, role: AccountRole.WRITABLE }, { address: addresses.escrow, role: AccountRole.WRITABLE }, { address: SYSTEM_PROGRAM_ADDRESS, role: AccountRole.READONLY },
+      ], data,
+    },
+  };
+}
+
+export async function createBuyRequestInstruction(input: CreateBuyRequestInput): Promise<Instruction> { return (await prepareBuyRequest(input)).instruction; }
+
+export async function cancelBuyRequestInstruction(input: Pick<CreateBuyRequestInput, 'programAddress' | 'buyer' | 'market' | 'quoteMint' | 'quoteTokenProgram'> & BuyRequestAddresses & { buyerQuoteDestination: Address }): Promise<Instruction> {
+  return { programAddress: input.programAddress, accounts: [
+    { address: input.buyer, role: AccountRole.WRITABLE_SIGNER }, { address: input.request, role: AccountRole.WRITABLE }, { address: input.market, role: AccountRole.READONLY }, { address: input.quoteMint, role: AccountRole.READONLY }, { address: input.quoteTokenProgram, role: AccountRole.READONLY }, { address: input.escrow, role: AccountRole.WRITABLE }, { address: input.buyerQuoteDestination, role: AccountRole.WRITABLE },
+  ], data: await anchorDiscriminator('cancel_buy_request') };
 }
 
 export async function createDevnetStockClaimInstruction(
@@ -214,6 +309,8 @@ function i64(value: bigint): Uint8Array {
   return bytes;
 }
 
+function i32(value: number): Uint8Array { const bytes = new Uint8Array(4); new DataView(bytes.buffer).setInt32(0, value, true); return bytes; }
+
 function concatBytes(...values: Uint8Array[]): Uint8Array {
   const bytes = new Uint8Array(values.reduce((total, value) => total + value.length, 0));
   let offset = 0;
@@ -223,3 +320,5 @@ function concatBytes(...values: Uint8Array[]): Uint8Array {
   }
   return bytes;
 }
+
+function toHex(bytes: Uint8Array): string { return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join(''); }

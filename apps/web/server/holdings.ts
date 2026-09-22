@@ -94,3 +94,26 @@ export async function readSupportedHolding(
     slot: Number(tokenAccounts.context.slot),
   };
 }
+
+export async function readSpendableQuoteBalance(
+  market: MarketConfig,
+  owner: string,
+): Promise<{ rawAmount: string; sourceTokenAccount: string | null; decimals: number }> {
+  if (!isAddress(owner)) throw new Error('invalid_owner');
+  const rpc = createSolanaRpc(getEnvironment().SOLANA_RPC_URL);
+  const mintAddress = address(market.quoteMint);
+  const [mintAccount, tokenAccounts] = await Promise.all([
+    fetchMint(rpc, mintAddress),
+    rpc.getTokenAccountsByOwner(address(owner), { mint: mintAddress }, { encoding: 'base64' }).send(),
+  ]);
+  if (mintAccount.programAddress !== address(market.quoteTokenProgram)) throw new Error('mint_program_mismatch');
+  const extensions = isSome(mintAccount.data.extensions) ? mintAccount.data.extensions.value : [];
+  if (extensions.length > 0) throw new Error('unsupported_quote_extension');
+  const accounts = tokenAccounts.value.map(account => {
+    const decoded = decodeToken(parseBase64RpcAccount(account.pubkey, account.account));
+    if (decoded.programAddress !== address(market.quoteTokenProgram) || decoded.data.mint !== mintAddress || decoded.data.owner !== address(owner)) throw new Error('token_account_mismatch');
+    return { address: account.pubkey, rawAmount: decoded.data.amount.toString() };
+  });
+  const source = accounts.reduce<(typeof accounts)[number] | undefined>((largest, current) => !largest || BigInt(current.rawAmount) > BigInt(largest.rawAmount) ? current : largest, undefined);
+  return { rawAmount: aggregateRawAmounts(accounts.map(account => account.rawAmount)), sourceTokenAccount: source?.address ?? null, decimals: mintAccount.data.decimals };
+}

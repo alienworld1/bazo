@@ -13,6 +13,8 @@ pub const PLAN_VERSION: u16 = 1;
 pub const COMMITMENT_SCHEMA_VERSION: u16 = 1;
 pub const DEVNET_NETWORK_ID: u8 = 1;
 pub const STATUS_ACTIVE: u8 = 1;
+pub const BUY_REQUEST_VERSION: u16 = 1;
+pub const STATUS_CANCELED: u8 = 2;
 pub const PROTOCOL_CONFIG_SEED: &[u8] = b"protocol";
 pub const MARKET_SEED: &[u8] = b"market";
 pub const PLAN_SEED: &[u8] = b"plan";
@@ -20,6 +22,9 @@ pub const STOCK_VAULT_SEED: &[u8] = b"plan-stock-vault";
 pub const PROCEEDS_VAULT_SEED: &[u8] = b"plan-proceeds-vault";
 pub const DEVNET_STOCK_FAUCET_SEED: &[u8] = b"devnet-stock-faucet";
 pub const DEVNET_STOCK_CLAIM_SEED: &[u8] = b"devnet-stock-claim";
+pub const BUY_REQUEST_SEED: &[u8] = b"buy-request";
+pub const BUY_ESCROW_SEED: &[u8] = b"buy-escrow";
+pub const BUY_REQUEST_DOMAIN: &[u8] = b"BAZO_BUY_REQUEST_V1";
 pub const TERMINAL_DOMAIN: &[u8] = b"BAZO_STAGE_TERMINAL_V1";
 pub const SCALED_UI_AMOUNT_EXTENSION_POLICY: u32 = 1;
 pub const DEVNET_STOCK_CLAIM_RAW_AMOUNT: u64 = 10_000_000;
@@ -198,6 +203,69 @@ pub mod bazo {
 
         Ok(())
     }
+
+    pub fn create_buy_request(ctx: Context<CreateBuyRequest>, args: CreateBuyRequestArgs) -> Result<()> {
+        require!(args.commitment_schema_version == COMMITMENT_SCHEMA_VERSION, BazoError::UnsupportedCommitmentSchema);
+        require!(args.max_quote_amount > 0, BazoError::InvalidQuoteAmount);
+        require!(args.expires_at > Clock::get()?.unix_timestamp, BazoError::ExpiredBuyRequest);
+        require!(!is_zero_commitment(&args.request_commitment), BazoError::InvalidBuyRequestCommitment);
+        let market = &ctx.accounts.market;
+        require!(market.enabled, BazoError::MarketDisabled);
+        require!(market.quote_mint == ctx.accounts.quote_mint.key(), BazoError::MarketMismatch);
+        require!(market.quote_token_program == ctx.accounts.quote_token_program.key(), BazoError::MarketMismatch);
+        require!(ctx.accounts.buyer_quote_account.amount >= args.max_quote_amount, BazoError::InsufficientQuote);
+        validate_quote_mint_extensions(&ctx.accounts.quote_mint.to_account_info())?;
+
+        let request = &mut ctx.accounts.request;
+        request.version = BUY_REQUEST_VERSION;
+        request.buyer = ctx.accounts.buyer.key();
+        request.recipient = args.recipient;
+        request.market = market.key();
+        request.escrow = ctx.accounts.escrow.key();
+        request.request_commitment = args.request_commitment;
+        request.max_quote_amount = args.max_quote_amount;
+        request.spent_quote_amount = 0;
+        request.refundable_quote_amount = 0;
+        request.filled_raw_quantity = 0;
+        request.expires_at = args.expires_at;
+        request.created_at = Clock::get()?.unix_timestamp;
+        request.created_slot = Clock::get()?.slot;
+        request.request_nonce = args.request_nonce;
+        request.locked_batch = None;
+        request.status = STATUS_ACTIVE;
+        request.bump = ctx.bumps.request;
+
+        let transfer_accounts = TransferChecked {
+            from: ctx.accounts.buyer_quote_account.to_account_info(),
+            mint: ctx.accounts.quote_mint.to_account_info(),
+            to: ctx.accounts.escrow.to_account_info(),
+            authority: ctx.accounts.buyer.to_account_info(),
+        };
+        token_interface::transfer_checked(
+            CpiContext::new(ctx.accounts.quote_token_program.key(), transfer_accounts),
+            args.max_quote_amount,
+            ctx.accounts.quote_mint.decimals,
+        )?;
+        emit!(BuyRequestCreated { request: request.key(), buyer: request.buyer, recipient: request.recipient, market: request.market, escrow: request.escrow, max_quote_amount: request.max_quote_amount, expires_at: request.expires_at, request_commitment: request.request_commitment });
+        Ok(())
+    }
+
+    pub fn cancel_buy_request(ctx: Context<CancelBuyRequest>) -> Result<()> {
+        let request = &mut ctx.accounts.request;
+        require!(request.status == STATUS_ACTIVE, BazoError::BuyRequestNotActive);
+        require!(request.locked_batch.is_none(), BazoError::BuyRequestLocked);
+        require!(request.buyer == ctx.accounts.buyer.key(), BazoError::Unauthorized);
+        let refundable = request.max_quote_amount.checked_sub(request.spent_quote_amount).ok_or(BazoError::EscrowAccountingMismatch)?;
+        require!(ctx.accounts.escrow.amount == refundable, BazoError::EscrowAccountingMismatch);
+        request.status = STATUS_CANCELED;
+        request.refundable_quote_amount = 0;
+        let request_key = request.key();
+        let signer_seeds: &[&[u8]] = &[BUY_REQUEST_SEED, &BUY_REQUEST_VERSION.to_le_bytes(), request.buyer.as_ref(), &request.request_nonce.to_le_bytes(), &[request.bump]];
+        let transfer_accounts = TransferChecked { from: ctx.accounts.escrow.to_account_info(), mint: ctx.accounts.quote_mint.to_account_info(), to: ctx.accounts.buyer_quote_destination.to_account_info(), authority: request.to_account_info() };
+        token_interface::transfer_checked(CpiContext::new_with_signer(ctx.accounts.quote_token_program.key(), transfer_accounts, &[signer_seeds]), refundable, ctx.accounts.quote_mint.decimals)?;
+        emit!(BuyRequestCanceled { request: request_key, buyer: request.buyer, refunded_quote_amount: refundable });
+        Ok(())
+    }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -215,6 +283,16 @@ pub struct CreatePlanArgs {
     pub current_stage_commitment: [u8; 32],
     pub initial_raw_inventory: u64,
     pub expires_at: i64,
+    pub commitment_schema_version: u16,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct CreateBuyRequestArgs {
+    pub request_nonce: u64,
+    pub request_commitment: [u8; 32],
+    pub max_quote_amount: u64,
+    pub expires_at: i64,
+    pub recipient: Pubkey,
     pub commitment_schema_version: u16,
 }
 
@@ -361,6 +439,30 @@ pub struct ClaimDevnetStock<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+#[instruction(args: CreateBuyRequestArgs)]
+pub struct CreateBuyRequest<'info> {
+    #[account(mut)] pub buyer: Signer<'info>,
+    #[account(has_one = quote_mint @ BazoError::MarketMismatch, constraint = market.enabled @ BazoError::MarketDisabled)] pub market: Account<'info, Market>,
+    #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)] pub quote_mint: InterfaceAccount<'info, Mint>,
+    #[account(address = market.quote_token_program @ BazoError::MarketMismatch, constraint = quote_token_program.key() == anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)] pub quote_token_program: Interface<'info, TokenInterface>,
+    #[account(mut, constraint = buyer_quote_account.owner == buyer.key() @ BazoError::InvalidQuoteSource, constraint = buyer_quote_account.mint == quote_mint.key() @ BazoError::InvalidQuoteSource, constraint = buyer_quote_account.to_account_info().owner == &quote_token_program.key() @ BazoError::InvalidQuoteSource)] pub buyer_quote_account: InterfaceAccount<'info, TokenAccount>,
+    #[account(init, payer = buyer, space = 8 + BuyRequest::INIT_SPACE, seeds = [BUY_REQUEST_SEED, &BUY_REQUEST_VERSION.to_le_bytes(), buyer.key().as_ref(), &args.request_nonce.to_le_bytes()], bump)] pub request: Account<'info, BuyRequest>,
+    #[account(init, payer = buyer, seeds = [BUY_ESCROW_SEED, request.key().as_ref()], bump, token::mint = quote_mint, token::authority = request, token::token_program = quote_token_program)] pub escrow: InterfaceAccount<'info, TokenAccount>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CancelBuyRequest<'info> {
+    #[account(mut)] pub buyer: Signer<'info>,
+    #[account(mut, has_one = buyer @ BazoError::Unauthorized, has_one = escrow @ BazoError::MarketMismatch)] pub request: Account<'info, BuyRequest>,
+    #[account(has_one = quote_mint @ BazoError::MarketMismatch)] pub market: Account<'info, Market>,
+    #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)] pub quote_mint: InterfaceAccount<'info, Mint>,
+    #[account(address = market.quote_token_program @ BazoError::MarketMismatch)] pub quote_token_program: Interface<'info, TokenInterface>,
+    #[account(mut, constraint = escrow.mint == quote_mint.key() @ BazoError::MarketMismatch, constraint = escrow.owner == request.key() @ BazoError::MarketMismatch)] pub escrow: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut, constraint = buyer_quote_destination.owner == buyer.key() @ BazoError::InvalidQuoteDestination, constraint = buyer_quote_destination.mint == quote_mint.key() @ BazoError::InvalidQuoteDestination, constraint = buyer_quote_destination.to_account_info().owner == &quote_token_program.key() @ BazoError::InvalidQuoteDestination)] pub buyer_quote_destination: InterfaceAccount<'info, TokenAccount>,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct ProtocolConfig {
@@ -420,6 +522,28 @@ pub struct DevnetStockClaim {
     pub bump: u8,
 }
 
+#[account]
+#[derive(InitSpace)]
+pub struct BuyRequest {
+    pub version: u16,
+    pub buyer: Pubkey,
+    pub recipient: Pubkey,
+    pub market: Pubkey,
+    pub escrow: Pubkey,
+    pub request_commitment: [u8; 32],
+    pub max_quote_amount: u64,
+    pub spent_quote_amount: u64,
+    pub refundable_quote_amount: u64,
+    pub filled_raw_quantity: u64,
+    pub expires_at: i64,
+    pub created_at: i64,
+    pub created_slot: u64,
+    pub request_nonce: u64,
+    pub locked_batch: Option<Pubkey>,
+    pub status: u8,
+    pub bump: u8,
+}
+
 #[event]
 pub struct ProtocolInitialized {
     pub protocol_config: Pubkey,
@@ -456,6 +580,11 @@ pub struct DevnetStockClaimed {
     pub raw_amount: u64,
 }
 
+#[event]
+pub struct BuyRequestCreated { pub request: Pubkey, pub buyer: Pubkey, pub recipient: Pubkey, pub market: Pubkey, pub escrow: Pubkey, pub max_quote_amount: u64, pub expires_at: i64, pub request_commitment: [u8; 32] }
+#[event]
+pub struct BuyRequestCanceled { pub request: Pubkey, pub buyer: Pubkey, pub refunded_quote_amount: u64 }
+
 #[error_code]
 pub enum BazoError {
     #[msg("The protocol authority did not authorize this operation.")]
@@ -490,6 +619,15 @@ pub enum BazoError {
     InvalidFaucetAuthority,
     #[msg("The Devnet stock claim destination is invalid.")]
     InvalidClaimDestination,
+    #[msg("The quote amount is invalid.")] InvalidQuoteAmount,
+    #[msg("The quote source account is invalid.")] InvalidQuoteSource,
+    #[msg("The quote destination account is invalid.")] InvalidQuoteDestination,
+    #[msg("The quote source account does not have enough balance.")] InsufficientQuote,
+    #[msg("The Buy Request expiry must be in the future.")] ExpiredBuyRequest,
+    #[msg("The Buy Request commitment is invalid.")] InvalidBuyRequestCommitment,
+    #[msg("The Buy Request is not active.")] BuyRequestNotActive,
+    #[msg("The Buy Request is locked for matching.")] BuyRequestLocked,
+    #[msg("The escrow accounting does not match the token balance.")] EscrowAccountingMismatch,
 }
 
 fn validate_stock_mint_extensions(stock_mint: &AccountInfo<'_>) -> Result<()> {
@@ -510,6 +648,14 @@ fn validate_stock_mint_extensions(stock_mint: &AccountInfo<'_>) -> Result<()> {
 
 fn stock_extensions_are_supported(extensions: &[ExtensionType]) -> bool {
     extensions == [ExtensionType::ScaledUiAmount]
+}
+
+fn validate_quote_mint_extensions(quote_mint: &AccountInfo<'_>) -> Result<()> {
+    let mint_data = quote_mint.try_borrow_data()?;
+    let mint = StateWithExtensions::<Token2022Mint>::unpack(&mint_data).map_err(|_| error!(BazoError::UnsupportedMintExtensions))?;
+    let extensions = mint.get_extension_types().map_err(|_| error!(BazoError::UnsupportedMintExtensions))?;
+    require!(extensions.is_empty(), BazoError::UnsupportedMintExtensions);
+    Ok(())
 }
 
 pub fn terminal_commitment(plan: Pubkey, market: Pubkey) -> [u8; 32] {
@@ -563,6 +709,49 @@ pub struct CanonicalStageV1 {
     pub salt: [u8; 32],
 }
 
+pub struct CanonicalBuyRequestOpeningV1 {
+    pub schema_version: u16,
+    pub network: u8,
+    pub request: Pubkey,
+    pub buyer: Pubkey,
+    pub recipient: Pubkey,
+    pub market: Pubkey,
+    pub target_raw_quantity: u64,
+    pub max_premium_bps: i32,
+    pub max_quote_amount: u64,
+    pub expires_at: i64,
+    pub allow_partial_fills: bool,
+    pub request_nonce: u64,
+    pub salt: [u8; 32],
+}
+
+pub fn encode_canonical_buy_request(opening: &CanonicalBuyRequestOpeningV1) -> Result<Vec<u8>> {
+    require!(opening.schema_version == COMMITMENT_SCHEMA_VERSION, BazoError::UnsupportedCommitmentSchema);
+    require!(opening.network == DEVNET_NETWORK_ID, BazoError::InvalidBuyRequestCommitment);
+    require!(opening.target_raw_quantity > 0 && opening.max_quote_amount > 0, BazoError::InvalidQuoteAmount);
+    require!(opening.max_premium_bps > -10_000, BazoError::InvalidBuyRequestCommitment);
+    let mut bytes = Vec::with_capacity(219);
+    bytes.extend_from_slice(BUY_REQUEST_DOMAIN);
+    bytes.extend_from_slice(&opening.schema_version.to_le_bytes());
+    bytes.push(opening.network);
+    bytes.extend_from_slice(opening.request.as_ref());
+    bytes.extend_from_slice(opening.buyer.as_ref());
+    bytes.extend_from_slice(opening.recipient.as_ref());
+    bytes.extend_from_slice(opening.market.as_ref());
+    bytes.extend_from_slice(&opening.target_raw_quantity.to_le_bytes());
+    bytes.extend_from_slice(&opening.max_premium_bps.to_le_bytes());
+    bytes.extend_from_slice(&opening.max_quote_amount.to_le_bytes());
+    bytes.extend_from_slice(&opening.expires_at.to_le_bytes());
+    bytes.push(u8::from(opening.allow_partial_fills));
+    bytes.extend_from_slice(&opening.request_nonce.to_le_bytes());
+    bytes.extend_from_slice(&opening.salt);
+    Ok(bytes)
+}
+
+pub fn hash_canonical_buy_request(opening: &CanonicalBuyRequestOpeningV1) -> Result<[u8; 32]> {
+    Ok(hashv(&[&encode_canonical_buy_request(opening)?]).to_bytes())
+}
+
 fn is_zero_commitment(commitment: &[u8; 32]) -> bool {
     commitment.iter().all(|byte| *byte == 0)
 }
@@ -612,5 +801,20 @@ mod tests {
             ExtensionType::ScaledUiAmount,
             ExtensionType::MintCloseAuthority,
         ]));
+    }
+
+    #[test]
+    fn canonical_buy_request_matches_the_golden_vector() {
+        let opening = CanonicalBuyRequestOpeningV1 {
+            schema_version: 1, network: 1,
+            request: Pubkey::from_str("11111111111111111111111111111111").unwrap(),
+            buyer: Pubkey::from_str("SysvarC1ock11111111111111111111111111111111").unwrap(),
+            recipient: Pubkey::from_str("SysvarRent111111111111111111111111111111111").unwrap(),
+            market: Pubkey::from_str("Stake11111111111111111111111111111111111111").unwrap(),
+            target_raw_quantity: 2_500_001, max_premium_bps: 100, max_quote_amount: 7_500_000,
+            expires_at: 1_800_000_000, allow_partial_fills: true, request_nonce: 42, salt: [7; 32],
+        };
+        assert_eq!(encode_canonical_buy_request(&opening).unwrap().len(), 219);
+        assert_eq!(hex(&hash_canonical_buy_request(&opening).unwrap()), "deb9b59583c806ea7c9674ba7dc02e9cbac549dbb92d3b238f2ce10e27c2c1c2");
     }
 }
