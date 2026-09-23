@@ -15,6 +15,7 @@ export type PublicBuyRequest = {
   refundableQuoteAmount: string;
   filledRawQuantity: string;
   expiresAt: string;
+  createdAt: string;
   createdSlot: string;
   requestNonce: string;
   status: 'active' | 'canceled' | 'expired' | 'unknown';
@@ -52,6 +53,7 @@ export function decodePublicBuyRequest(
     refundableQuoteAmount: view.getBigUint64(186, true).toString(),
     filledRawQuantity: view.getBigUint64(194, true).toString(),
     expiresAt: view.getBigInt64(202, true).toString(),
+    createdAt: view.getBigInt64(210, true).toString(),
     createdSlot: view.getBigUint64(218, true).toString(),
     requestNonce: view.getBigUint64(226, true).toString(),
     status:

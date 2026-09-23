@@ -14,6 +14,9 @@ import {
   decodePublicBuyRequest,
   type PublicBuyRequest,
 } from './buy-request';
+export * from './batch';
+export * from './matching';
+export * from './opening-transport';
 
 export {
   BUY_REQUEST_ACCOUNT_DATA_LENGTH,
@@ -226,7 +229,10 @@ export async function fetchBuyRequest(input: {
     address(input.requestAddress),
     (
       await rpc
-        .getAccountInfo(address(input.requestAddress), { encoding: 'base64' })
+        .getAccountInfo(address(input.requestAddress), {
+          encoding: 'base64',
+          commitment: 'confirmed',
+        })
         .send()
     ).value,
   );

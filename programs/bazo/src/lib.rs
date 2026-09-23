@@ -25,6 +25,13 @@ pub const DEVNET_STOCK_FAUCET_SEED: &[u8] = b"devnet-stock-faucet";
 pub const DEVNET_STOCK_CLAIM_SEED: &[u8] = b"devnet-stock-claim";
 pub const BUY_REQUEST_SEED: &[u8] = b"buy-request";
 pub const BUY_ESCROW_SEED: &[u8] = b"buy-escrow";
+pub const BATCH_SEED: &[u8] = b"batch";
+pub const BATCH_POLICY_SEED: &[u8] = b"batch-policy";
+pub const BATCH_VERSION: u16 = 1;
+pub const MAX_BATCH_REQUESTS: usize = 4;
+pub const BATCH_OPEN: u8 = 1;
+pub const BATCH_LOCKED: u8 = 2;
+pub const BATCH_EXPIRED: u8 = 3;
 pub const BUY_REQUEST_DOMAIN: &[u8] = b"BAZO_BUY_REQUEST_V1";
 pub const TERMINAL_DOMAIN: &[u8] = b"BAZO_STAGE_TERMINAL_V1";
 pub const SCALED_UI_AMOUNT_EXTENSION_POLICY: u32 = 1;
@@ -285,6 +292,118 @@ pub mod bazo {
         emit!(BuyRequestRefunded { request: request.key(), buyer: request.buyer, refunded_quote_amount: refundable });
         Ok(())
     }
+
+    pub fn open_batch(ctx: Context<OpenBatch>, window_start: i64) -> Result<()> {
+        let clock = Clock::get()?;
+        let policy = &ctx.accounts.policy;
+        require!(clock.unix_timestamp.div_euclid(policy.window_seconds) * policy.window_seconds == window_start, BazoError::InvalidBatchWindow);
+        let batch = &mut ctx.accounts.batch;
+        batch.version = BATCH_VERSION;
+        batch.market = ctx.accounts.market.key();
+        batch.window_start = window_start;
+        batch.window_end = window_start.checked_add(policy.window_seconds).ok_or(BazoError::InvalidBatchWindow)?;
+        batch.window_seconds = policy.window_seconds;
+        batch.lock_seconds = policy.lock_seconds;
+        batch.created_slot = clock.slot;
+        batch.lock_slot = None;
+        batch.lock_deadline = batch.window_end.checked_add(policy.lock_seconds).ok_or(BazoError::InvalidBatchWindow)?;
+        batch.status = BATCH_OPEN;
+        batch.requests = Vec::new();
+        batch.bump = ctx.bumps.batch;
+        emit!(BatchOpened { batch: batch.key(), market: batch.market, window_start, window_end: batch.window_end });
+        Ok(())
+    }
+
+    pub fn initialize_batch_policy(ctx: Context<InitializeBatchPolicy>, window_seconds: i64, lock_seconds: i64) -> Result<()> {
+        require!((30..=60).contains(&window_seconds) && (60..=300).contains(&lock_seconds), BazoError::InvalidBatchWindow);
+        let policy = &mut ctx.accounts.policy;
+        policy.version = BATCH_VERSION;
+        policy.market = ctx.accounts.market.key();
+        policy.window_seconds = window_seconds;
+        policy.lock_seconds = lock_seconds;
+        policy.bump = ctx.bumps.policy;
+        emit!(BatchPolicyInitialized { market: policy.market, window_seconds, lock_seconds });
+        Ok(())
+    }
+
+    pub fn lock_batch(ctx: Context<LockBatch>, request_keys: Vec<Pubkey>) -> Result<()> {
+        let clock = Clock::get()?;
+        let batch = &mut ctx.accounts.batch;
+        require!(batch.status == BATCH_OPEN, BazoError::BatchNotOpen);
+        require!(clock.unix_timestamp >= batch.window_end && clock.unix_timestamp < batch.lock_deadline, BazoError::BatchWindowEnded);
+        require!(!request_keys.is_empty() && request_keys.len() <= MAX_BATCH_REQUESTS, BazoError::InvalidBatchSet);
+        require!(ctx.remaining_accounts.len() == request_keys.len() * 2, BazoError::InvalidBatchSet);
+        require!(request_keys.windows(2).all(|pair| pair[0].to_bytes() < pair[1].to_bytes()), BazoError::InvalidBatchSet);
+        for (index, key) in request_keys.iter().enumerate() {
+            let request_info = &ctx.remaining_accounts[index * 2];
+            let escrow_info = &ctx.remaining_accounts[index * 2 + 1];
+            require!(request_info.key == key && request_info.is_writable, BazoError::InvalidBatchSet);
+            let mut request: Account<BuyRequest> = Account::try_from(request_info)?;
+            let escrow: InterfaceAccount<TokenAccount> = InterfaceAccount::try_from(escrow_info)?;
+            require!(request.version == BUY_REQUEST_VERSION && request.market == batch.market && request.status == STATUS_ACTIVE, BazoError::BuyRequestNotActive);
+            require!(request.created_at < batch.window_end && request.expires_at > batch.lock_deadline, BazoError::ExpiredBuyRequest);
+            require!(request.locked_batch.is_none(), BazoError::BuyRequestLocked);
+            require!(request.escrow == *escrow_info.key && escrow.mint == ctx.accounts.market.quote_mint && escrow.owner == *request_info.key && escrow_info.owner == &ctx.accounts.market.quote_token_program, BazoError::EscrowAccountingMismatch);
+            let remaining = request.max_quote_amount.checked_sub(request.spent_quote_amount).ok_or(BazoError::EscrowAccountingMismatch)?;
+            require!(remaining > 0 && escrow.amount == remaining, BazoError::EscrowAccountingMismatch);
+            request.locked_batch = Some(batch.key());
+            request.exit(ctx.program_id)?;
+        }
+        batch.requests = request_keys;
+        batch.lock_slot = Some(clock.slot);
+        batch.status = BATCH_LOCKED;
+        emit!(BatchLocked { batch: batch.key(), request_count: batch.requests.len() as u8, lock_deadline: batch.lock_deadline });
+        Ok(())
+    }
+
+    pub fn expire_batch(ctx: Context<ExpireBatch>) -> Result<()> {
+        let batch = &mut ctx.accounts.batch;
+        require!(batch.status == BATCH_OPEN || batch.status == BATCH_LOCKED, BazoError::BatchAlreadyEnded);
+        require!(Clock::get()?.unix_timestamp >= batch.lock_deadline, BazoError::BatchNotExpired);
+        require!(ctx.remaining_accounts.len() == batch.requests.len(), BazoError::InvalidBatchSet);
+        for (index, key) in batch.requests.iter().enumerate() {
+            let info = &ctx.remaining_accounts[index];
+            require!(info.key == key && info.is_writable, BazoError::InvalidBatchSet);
+            let mut request: Account<BuyRequest> = Account::try_from(info)?;
+            require!(request.locked_batch == Some(batch.key()), BazoError::InvalidBatchSet);
+            request.locked_batch = None;
+            request.exit(ctx.program_id)?;
+        }
+        batch.status = BATCH_EXPIRED;
+        emit!(BatchExpired { batch: batch.key() });
+        Ok(())
+    }
+}
+
+#[derive(Accounts)]
+#[instruction(window_start: i64)]
+pub struct OpenBatch<'info> {
+    #[account(mut)] pub caller: Signer<'info>,
+    #[account(constraint = market.enabled @ BazoError::MarketDisabled)] pub market: Account<'info, Market>,
+    #[account(has_one = market @ BazoError::MarketMismatch, seeds = [BATCH_POLICY_SEED, market.key().as_ref()], bump = policy.bump)] pub policy: Account<'info, BatchPolicy>,
+    #[account(init, payer = caller, space = 8 + Batch::INIT_SPACE, seeds = [BATCH_SEED, &BATCH_VERSION.to_le_bytes(), market.key().as_ref(), &window_start.to_le_bytes()], bump)] pub batch: Account<'info, Batch>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeBatchPolicy<'info> {
+    #[account(mut)] pub authority: Signer<'info>,
+    #[account(has_one = authority @ BazoError::Unauthorized)] pub market: Account<'info, Market>,
+    #[account(init, payer = authority, space = 8 + BatchPolicy::INIT_SPACE, seeds = [BATCH_POLICY_SEED, market.key().as_ref()], bump)] pub policy: Account<'info, BatchPolicy>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct LockBatch<'info> {
+    pub caller: Signer<'info>,
+    pub market: Account<'info, Market>,
+    #[account(mut, has_one = market @ BazoError::MarketMismatch, seeds = [BATCH_SEED, &BATCH_VERSION.to_le_bytes(), market.key().as_ref(), &batch.window_start.to_le_bytes()], bump = batch.bump)] pub batch: Account<'info, Batch>,
+}
+
+#[derive(Accounts)]
+pub struct ExpireBatch<'info> {
+    pub caller: Signer<'info>,
+    #[account(mut, seeds = [BATCH_SEED, &BATCH_VERSION.to_le_bytes(), batch.market.as_ref(), &batch.window_start.to_le_bytes()], bump = batch.bump)] pub batch: Account<'info, Batch>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -566,6 +685,34 @@ pub struct BuyRequest {
     pub bump: u8,
 }
 
+#[account]
+#[derive(InitSpace)]
+pub struct Batch {
+    pub version: u16,
+    pub market: Pubkey,
+    pub window_start: i64,
+    pub window_end: i64,
+    pub window_seconds: i64,
+    pub lock_seconds: i64,
+    pub created_slot: u64,
+    pub lock_slot: Option<u64>,
+    pub lock_deadline: i64,
+    pub status: u8,
+    #[max_len(4)]
+    pub requests: Vec<Pubkey>,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct BatchPolicy {
+    pub version: u16,
+    pub market: Pubkey,
+    pub window_seconds: i64,
+    pub lock_seconds: i64,
+    pub bump: u8,
+}
+
 #[event]
 pub struct ProtocolInitialized {
     pub protocol_config: Pubkey,
@@ -608,6 +755,14 @@ pub struct BuyRequestCreated { pub request: Pubkey, pub buyer: Pubkey, pub recip
 pub struct BuyRequestCanceled { pub request: Pubkey, pub buyer: Pubkey, pub refunded_quote_amount: u64 }
 #[event]
 pub struct BuyRequestRefunded { pub request: Pubkey, pub buyer: Pubkey, pub refunded_quote_amount: u64 }
+#[event]
+pub struct BatchOpened { pub batch: Pubkey, pub market: Pubkey, pub window_start: i64, pub window_end: i64 }
+#[event]
+pub struct BatchLocked { pub batch: Pubkey, pub request_count: u8, pub lock_deadline: i64 }
+#[event]
+pub struct BatchExpired { pub batch: Pubkey }
+#[event]
+pub struct BatchPolicyInitialized { pub market: Pubkey, pub window_seconds: i64, pub lock_seconds: i64 }
 
 #[error_code]
 pub enum BazoError {
@@ -654,6 +809,12 @@ pub enum BazoError {
     #[msg("The Buy Request is locked for matching.")] BuyRequestLocked,
     #[msg("The Buy Request has not expired yet.")] BuyRequestNotExpired,
     #[msg("The escrow accounting does not match the token balance.")] EscrowAccountingMismatch,
+    #[msg("The Batch window is invalid.")] InvalidBatchWindow,
+    #[msg("The Batch request set is invalid.")] InvalidBatchSet,
+    #[msg("The Batch is not open.")] BatchNotOpen,
+    #[msg("The Batch window has ended.")] BatchWindowEnded,
+    #[msg("The Batch has already ended.")] BatchAlreadyEnded,
+    #[msg("The Batch lock has not expired.")] BatchNotExpired,
 }
 
 fn validate_stock_mint_extensions(stock_mint: &AccountInfo<'_>) -> Result<()> {
@@ -782,6 +943,35 @@ fn is_zero_commitment(commitment: &[u8; 32]) -> bool {
     commitment.iter().all(|byte| *byte == 0)
 }
 
+#[derive(Clone)]
+pub struct MatchBuyer {
+    pub request: Pubkey,
+    pub created_slot: u64,
+    pub remaining_raw_quantity: u64,
+    pub max_premium_bps: i32,
+    pub allow_partial_fills: bool,
+}
+
+pub fn allocate_stage(raw_quantity: u64, min_premium_bps: i32, buyers: &[MatchBuyer]) -> Option<(Vec<(Pubkey, u64)>, i32)> {
+    if raw_quantity == 0 || buyers.is_empty() || buyers.len() > MAX_BATCH_REQUESTS { return None; }
+    let mut ordered = buyers.to_vec();
+    ordered.sort_by(|a, b| b.max_premium_bps.cmp(&a.max_premium_bps)
+        .then(a.created_slot.cmp(&b.created_slot))
+        .then(a.request.to_bytes().cmp(&b.request.to_bytes())));
+    if ordered.iter().enumerate().any(|(index, buyer)| ordered.iter().skip(index + 1).any(|other| buyer.request == other.request)) { return None; }
+    let mut remainder = raw_quantity;
+    let mut winners = Vec::new();
+    for buyer in ordered {
+        if buyer.max_premium_bps < min_premium_bps || buyer.remaining_raw_quantity == 0 { continue; }
+        if !buyer.allow_partial_fills && buyer.remaining_raw_quantity > remainder { continue; }
+        let amount = buyer.remaining_raw_quantity.min(remainder);
+        winners.push((buyer.request, amount));
+        remainder = remainder.checked_sub(amount)?;
+        if remainder == 0 { return Some((winners, buyer.max_premium_bps)); }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -842,5 +1032,31 @@ mod tests {
         };
         assert_eq!(encode_canonical_buy_request(&opening).unwrap().len(), 219);
         assert_eq!(hex(&hash_canonical_buy_request(&opening).unwrap()), "deb9b59583c806ea7c9674ba7dc02e9cbac549dbb92d3b238f2ce10e27c2c1c2");
+    }
+
+    #[test]
+    fn matching_uses_the_shared_allocation_vector() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../packages/sdk/fixtures/batch-allocation.json")).unwrap();
+        let seller = &fixture["seller"];
+        let buyers: Vec<MatchBuyer> = fixture["buyers"].as_array().unwrap().iter().map(|buyer| MatchBuyer {
+            request: Pubkey::from_str(buyer["request"].as_str().unwrap()).unwrap(),
+            created_slot: buyer["createdSlot"].as_str().unwrap().parse().unwrap(),
+            remaining_raw_quantity: buyer["remainingRawQuantity"].as_str().unwrap().parse().unwrap(),
+            max_premium_bps: buyer["maxPremiumBps"].as_i64().unwrap() as i32,
+            allow_partial_fills: buyer["allowPartialFills"].as_bool().unwrap(),
+        }).collect();
+        let quantity = seller["rawQuantity"].as_str().unwrap().parse().unwrap();
+        let premium = seller["minPremiumBps"].as_i64().unwrap() as i32;
+        let (winners, marginal) = allocate_stage(quantity, premium, &buyers).unwrap();
+        let amounts: Vec<String> = winners.iter().map(|(_, amount)| amount.to_string()).collect();
+        let expected: Vec<String> = fixture["expectedAllocations"].as_array().unwrap().iter().map(|value| value.as_str().unwrap().to_string()).collect();
+        assert_eq!(amounts, expected);
+        assert_eq!(marginal, fixture["expectedMarginalPremiumBps"].as_i64().unwrap() as i32);
+        let mut short = buyers.clone();
+        short[2].remaining_raw_quantity = 2;
+        assert!(allocate_stage(quantity, premium, &short).is_none());
+        let mut non_partial = buyers.clone();
+        non_partial[2].allow_partial_fills = false;
+        assert!(allocate_stage(quantity, premium, &non_partial).is_none());
     }
 }

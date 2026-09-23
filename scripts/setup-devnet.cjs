@@ -40,11 +40,13 @@ async function main() {
     .accountsPartial(marketBaseAccounts)
     .pubkeys();
 
-  if (!(await provider.connection.getAccountInfo(protocolAccounts.protocolConfig))) {
+  if (
+    !(await provider.connection.getAccountInfo(protocolAccounts.protocolConfig))
+  ) {
     const signature = await program.methods.initializeProtocol().rpc();
-    console.log(`Protocol initialized: ${signature}`);
+    process.stdout.write(`Protocol initialized: ${signature}\n`);
   } else {
-    console.log('Protocol configuration already exists.');
+    process.stdout.write('Protocol configuration already exists.\n');
   }
 
   if (!(await provider.connection.getAccountInfo(marketAccounts.market))) {
@@ -58,13 +60,59 @@ async function main() {
       })
       .accountsPartial(marketBaseAccounts)
       .rpc();
-    console.log(`Market created: ${signature}`);
+    process.stdout.write(`Market created: ${signature}\n`);
   } else {
-    console.log('Market already exists.');
+    process.stdout.write('Market already exists.\n');
   }
 
-  console.log(`Protocol config: ${protocolAccounts.protocolConfig.toBase58()}`);
-  console.log(`Market: ${marketAccounts.market.toBase58()}`);
+  const windowSeconds = Number(process.env.BAZO_BATCH_DURATION_SECONDS ?? '45');
+  const lockSeconds = Number(process.env.BAZO_BATCH_LOCK_SECONDS ?? '120');
+  if (
+    !Number.isSafeInteger(windowSeconds) ||
+    windowSeconds < 30 ||
+    windowSeconds > 60 ||
+    !Number.isSafeInteger(lockSeconds) ||
+    lockSeconds < 60 ||
+    lockSeconds > 300
+  )
+    throw new Error('Invalid Batch policy');
+  const [policy] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from('batch-policy'), marketAccounts.market.toBuffer()],
+    program.programId,
+  );
+  const existingPolicy = await provider.connection.getAccountInfo(
+    policy,
+    'confirmed',
+  );
+  if (!existingPolicy) {
+    const operation = program.methods
+      .initializeBatchPolicy(
+        new anchor.BN(windowSeconds),
+        new anchor.BN(lockSeconds),
+      )
+      .accountsPartial({
+        authority: provider.wallet.publicKey,
+        market: marketAccounts.market,
+        policy,
+      });
+    await operation.simulate();
+    const signature = await operation.rpc();
+    process.stdout.write(`Batch policy created: ${signature}\n`);
+  } else {
+    const policyState = await program.account.batchPolicy.fetch(policy);
+    if (
+      Number(policyState.windowSeconds) !== windowSeconds ||
+      Number(policyState.lockSeconds) !== lockSeconds
+    )
+      throw new Error(
+        'Existing Batch policy differs from requested configuration',
+      );
+    process.stdout.write('Batch policy already exists.\n');
+  }
+
+  process.stdout.write(`Protocol config: ${protocolAccounts.protocolConfig.toBase58()}\n`);
+  process.stdout.write(`Market: ${marketAccounts.market.toBase58()}\n`);
+  process.stdout.write(`Batch policy: ${policy.toBase58()}\n`);
 }
 
 main().catch(error => {

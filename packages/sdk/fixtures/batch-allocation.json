@@ -1,0 +1,37 @@
+{
+  "seller": {
+    "plan": "Vote111111111111111111111111111111111111111",
+    "createdAt": "10",
+    "stageFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "rawQuantity": "10",
+    "minPremiumBps": 50
+  },
+  "buyers": [
+    {
+      "request": "SysvarC1ock11111111111111111111111111111111",
+      "createdSlot": "1",
+      "remainingRawQuantity": "3",
+      "maxPremiumBps": 150,
+      "allowPartialFills": true,
+      "remainingQuoteCap": "100"
+    },
+    {
+      "request": "SysvarRent111111111111111111111111111111111",
+      "createdSlot": "2",
+      "remainingRawQuantity": "4",
+      "maxPremiumBps": 100,
+      "allowPartialFills": true,
+      "remainingQuoteCap": "100"
+    },
+    {
+      "request": "Stake11111111111111111111111111111111111111",
+      "createdSlot": "3",
+      "remainingRawQuantity": "5",
+      "maxPremiumBps": 80,
+      "allowPartialFills": true,
+      "remainingQuoteCap": "100"
+    }
+  ],
+  "expectedAllocations": ["3", "4", "3"],
+  "expectedMarginalPremiumBps": 80
+}
