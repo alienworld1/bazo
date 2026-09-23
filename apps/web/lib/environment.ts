@@ -21,7 +21,7 @@ const environmentSchema = z.object({
   BAZO_MIN_PUBLISHER_COUNT: z.coerce.number().int().positive(),
   BAZO_MAX_CONFIDENCE_RATIO_BPS: z.coerce.number().int().positive(),
   BAZO_MINIMUM_STAGE_RAW_AMOUNT: z.string().regex(/^\d+$/),
-  BAZO_BATCH_DURATION_SECONDS: z.coerce.number().int().positive(),
+  BAZO_BATCH_DURATION_SECONDS: z.coerce.number().int().min(30).max(60),
 });
 
 export function parseEnvironment(input: unknown) {

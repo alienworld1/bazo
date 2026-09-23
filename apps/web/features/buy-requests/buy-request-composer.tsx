@@ -28,6 +28,7 @@ import {
 } from './quote-ceiling';
 import { useBuyReference } from './use-buy-reference';
 import { rememberBuyRequestOpening } from './private-buy-request-memory';
+import { deliverBuyRequestOpening } from './deliver-buy-request-opening';
 import { reconcileFundedBuyRequest } from './reconcile-buy-request';
 import { BuyRequestReview } from './buy-request-review';
 import { BuyRequestField as Field } from './buy-request-field';
@@ -436,6 +437,11 @@ export function BuyRequestComposer({
         return;
       }
       rememberBuyRequestOpening(prepared.opening);
+      try {
+        await deliverBuyRequestOpening(prepared.opening);
+      } catch {
+        /* The funded request remains recoverable onchain. */
+      }
       router.replace(
         `/buy-requests/${prepared.request}?signature=${result.context.signature}`,
       );
@@ -698,7 +704,8 @@ export function BuyRequestComposer({
           {reference?.status === 'session_not_allowed' ? (
             <p className="mt-2 text-sm text-text-secondary">
               You can prepare a request now. This Market settles only during its
-              supported session, so choose an expiry that gives it time to reopen.
+              supported session, so choose an expiry that gives it time to
+              reopen.
             </p>
           ) : null}
           <p className="mt-6 text-sm text-text-secondary">

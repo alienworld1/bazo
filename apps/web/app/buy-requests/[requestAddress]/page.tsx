@@ -3,11 +3,13 @@ import { notFound } from 'next/navigation';
 import { AppShell } from '@/components/app-shell';
 import { BuyRequestActions } from '@/features/buy-requests/buy-request-actions';
 import { BuyRequestPrivateTerms } from '@/features/buy-requests/buy-request-private-terms';
+import { BuyRequestDelivery } from '@/features/buy-requests/buy-request-delivery';
 import { formatDisplayAmount } from '@/lib/token-amounts';
 import { readBuyRequest, readChainUnixTimestamp } from '@/server/buy-requests';
 import { getEnvironment } from '@/server/env';
 import { getEnabledMarkets } from '@/server/market-registry';
 import { readSpendableQuoteBalance } from '@/server/holdings';
+import { readBatch, readRelevantBatch } from '@/server/batches';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +30,9 @@ export default async function BuyRequestPage({
     readChainUnixTimestamp(),
     readSpendableQuoteBalance(market, request.buyer),
   ]);
+  const batch = request.lockedBatch
+    ? await readBatch(request.lockedBatch)
+    : await readRelevantBatch(request.market);
   const expired =
     request.status === 'active' && BigInt(request.expiresAt) <= chainTime;
   const title =
@@ -37,7 +42,9 @@ export default async function BuyRequestPage({
         ? 'Refund returned'
         : expired
           ? 'Refund available'
-          : 'Sealed in next Batch';
+          : request.lockedBatch
+            ? 'Locked'
+            : 'Sealed in next Batch';
   const facts = [
     ['Private terms', 'Sealed'],
     [
@@ -91,10 +98,27 @@ export default async function BuyRequestPage({
           stockDecimals={market.tokenDecimals}
           symbol={market.symbol}
         />
+        <BuyRequestDelivery request={request} />
+        {batch ? (
+          <section className="mt-8 border-t border-line-default pt-5">
+            <p
+              className={`text-sm ${request.lockedBatch ? 'text-locked' : 'text-text-secondary'}`}
+            >
+              {request.lockedBatch
+                ? `You can cancel after ${new Date(Number(batch.lockDeadline) * 1_000).toLocaleString()} once the Batch is released.`
+                : 'This Market has a Batch collecting requests.'}
+            </p>
+            <Link
+              href={`/batches/${batch.address}`}
+              className="mt-3 inline-flex min-h-11 items-center text-sm text-text-primary underline"
+            >
+              View Batch
+            </Link>
+          </section>
+        ) : null}
         {request.status === 'active' && !expired ? (
           <p className="mt-8 text-sm text-text-secondary">
-            Matching details need attention until a coordinator ingress is
-            configured. Your request remains governed by its onchain escrow.
+            Your request remains governed by its onchain escrow.
           </p>
         ) : null}
         <BuyRequestActions

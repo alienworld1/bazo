@@ -15,6 +15,7 @@
   --color-line-strong: #555c60;
   --color-info: #7fa4b5;
   --color-warning: #c4a16b;
+  --color-locked: #a7a18b;
   --color-focus: #d2de88;
 }
 
@@ -33,6 +34,7 @@
   --color-line-strong: var(--color-line-strong);
   --color-info: var(--color-info);
   --color-warning: var(--color-warning);
+  --color-locked: var(--color-locked);
   --color-focus: var(--color-focus);
   --font-sans: var(--font-instrument-sans);
   --font-mono: var(--font-ibm-plex-mono);

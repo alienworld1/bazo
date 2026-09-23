@@ -16,6 +16,7 @@ export type PublicSellPlan = {
   currentStageIndex: number;
   currentCommitment: string;
   currentCommitmentFingerprint: string;
+  createdAtUnix: string;
   expiresAtUnix: string;
   createdAt: string;
   expiresAt: string;
@@ -46,14 +47,22 @@ export function decodePublicSellPlan(
     currentStageIndex: view.getUint16(178, true),
     currentCommitment: toHex(commitment),
     currentCommitmentFingerprint: `${toHex(commitment.slice(0, 6))}…${toHex(commitment.slice(-4))}`,
-    createdAt: new Date(Number(view.getBigInt64(213, true)) * 1_000).toLocaleString(),
-    expiresAt: new Date(Number(view.getBigInt64(221, true)) * 1_000).toLocaleString(),
+    createdAtUnix: view.getBigInt64(213, true).toString(),
+    createdAt: new Date(
+      Number(view.getBigInt64(213, true)) * 1_000,
+    ).toLocaleString(),
+    expiresAt: new Date(
+      Number(view.getBigInt64(221, true)) * 1_000,
+    ).toLocaleString(),
     expiresAtUnix: view.getBigInt64(221, true).toString(),
   };
 }
 
 function sameBytes(first: Uint8Array, second: Uint8Array): boolean {
-  return first.length === second.length && first.every((value, index) => value === second[index]);
+  return (
+    first.length === second.length &&
+    first.every((value, index) => value === second[index])
+  );
 }
 
 function toHex(bytes: Uint8Array): string {

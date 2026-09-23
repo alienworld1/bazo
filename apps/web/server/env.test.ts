@@ -22,7 +22,7 @@ const environment = {
   BAZO_MIN_PUBLISHER_COUNT: '3',
   BAZO_MAX_CONFIDENCE_RATIO_BPS: '100',
   BAZO_MINIMUM_STAGE_RAW_AMOUNT: '1',
-  BAZO_BATCH_DURATION_SECONDS: '300',
+  BAZO_BATCH_DURATION_SECONDS: '45',
 };
 
 describe('server environment', () => {

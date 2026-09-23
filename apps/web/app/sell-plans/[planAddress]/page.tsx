@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation';
 import { AppShell } from '@/components/app-shell';
 import { OwnerStagePreview } from '@/features/sell-plans/owner-stage-preview';
 import { PlanFact } from '@/features/sell-plans/plan-fact';
+import { CurrentStageDelivery } from '@/features/sell-plans/current-stage-delivery';
 import { PlanRecoveryPanel } from '@/features/sell-plans/recovery/plan-recovery-panel';
+import { readRelevantBatch } from '@/server/batches';
 import { readPublicSellPlan } from '@/server/plans';
 
 export const dynamic = 'force-dynamic';
@@ -23,6 +25,7 @@ export default async function SellPlanDetailPage({
   const { reconciliation, recovery, signature } = await searchParams;
   const plan = await readPublicSellPlan(planAddress);
   if (!plan) notFound();
+  const batch = await readRelevantBatch(plan.market);
 
   return (
     <AppShell>
@@ -74,6 +77,34 @@ export default async function SellPlanDetailPage({
         </dl>
         <OwnerStagePreview plan={plan.address} owner={plan.owner} />
         <PlanRecoveryPanel plan={plan.address} owner={plan.owner} />
+        <CurrentStageDelivery
+          plan={plan.address}
+          owner={plan.owner}
+          stageIndex={plan.currentStageIndex}
+          commitment={plan.currentCommitment}
+        />
+        <section className="mt-8 border-t border-line-default pt-5">
+          <h2 className="text-lg font-medium text-text-primary">
+            Batch status
+          </h2>
+          <p className="mt-2 text-sm text-text-secondary">
+            {batch
+              ? batch.status === 'open'
+                ? 'Waiting for compatible demand.'
+                : batch.status === 'locked'
+                  ? 'Matching is being checked.'
+                  : 'This Batch ended without a sale. Your Stage remains sealed.'
+              : 'Waiting for compatible demand.'}
+          </p>
+          {batch ? (
+            <Link
+              href={`/batches/${batch.address}`}
+              className="mt-3 inline-flex min-h-11 items-center text-sm text-text-primary underline"
+            >
+              View Batch
+            </Link>
+          ) : null}
+        </section>
         <details className="mt-8 border-t border-line-default pt-5 text-sm">
           <summary className="cursor-pointer text-text-primary">
             View technical details

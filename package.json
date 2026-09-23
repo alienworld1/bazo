@@ -12,10 +12,13 @@
     "typecheck": "pnpm --filter web typecheck",
     "test": "pnpm --filter web test && pnpm test:sdk",
     "test:sdk": "pnpm --filter web exec vitest run --root ../../packages/sdk",
+    "dev:coordinator": "pnpm --filter @bazo/coordinator dev",
     "build": "pnpm --filter web build",
+    "build:program": "NO_DNA=1 anchor build && CARGO_TARGET_DIR=/tmp/bazo-sbf-v2 NO_DNA=1 cargo build-sbf --manifest-path programs/bazo/Cargo.toml --arch v2 --sbf-out-dir target/deploy",
     "format": "prettier --write",
     "setup:devnet": "node scripts/setup-devnet.cjs",
     "fixture:plan": "node scripts/create-devnet-fixture-plan.cjs",
-    "fixture:buy-request": "node scripts/create-devnet-fixture-buy-request.cjs"
+    "fixture:buy-request": "node scripts/create-devnet-fixture-buy-request.cjs",
+    "test:batch:local": "node scripts/test-batch-local.cjs"
   }
 }

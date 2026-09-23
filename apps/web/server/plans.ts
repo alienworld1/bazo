@@ -31,9 +31,14 @@ export async function readPublicSellPlan(
   const rpc = createSolanaRpc(env.SOLANA_RPC_URL);
   const account = parseBase64RpcAccount(
     address(planAddress),
-    (await rpc
-      .getAccountInfo(address(planAddress), { encoding: 'base64' })
-      .send()).value,
+    (
+      await rpc
+        .getAccountInfo(address(planAddress), {
+          encoding: 'base64',
+          commitment: 'confirmed',
+        })
+        .send()
+    ).value,
   );
   if (
     !account.exists ||
@@ -49,7 +54,9 @@ export async function readPublicSellPlan(
   }
   const [stockVaultAccount, proceedsVaultAccount] = await Promise.all([
     rpc.getAccountInfo(address(plan.stockVault), { encoding: 'base64' }).send(),
-    rpc.getAccountInfo(address(plan.proceedsVault), { encoding: 'base64' }).send(),
+    rpc
+      .getAccountInfo(address(plan.proceedsVault), { encoding: 'base64' })
+      .send(),
   ]);
   const stockVault = parseBase64RpcAccount(
     address(plan.stockVault),
