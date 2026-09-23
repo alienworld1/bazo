@@ -35,8 +35,13 @@ export function BuyRequestDelivery({ request }: { request: PublicBuyRequest }) {
     };
   }, [isOwner, request.address, request.lockedBatch, request.status]);
 
-  if (!isOwner || request.status !== 'active' || request.lockedBatch)
-    return null;
+  if (request.status !== 'active' || request.lockedBatch) return null;
+  if (!isOwner)
+    return (
+      <p className="mt-8 border-t border-line-default pt-5 text-sm text-text-secondary">
+        Connect the wallet that owns this request to provide matching details.
+      </p>
+    );
   const deliver = async () => {
     setError(undefined);
     setStatus('sending');
@@ -63,14 +68,18 @@ export function BuyRequestDelivery({ request }: { request: PublicBuyRequest }) {
       aria-live="polite"
     >
       <p className="text-sm font-medium text-text-primary">
-        {status === 'delivered'
-          ? 'Collecting requests'
-          : 'Matching details need attention'}
+        {status === 'checking'
+          ? 'Checking matching details…'
+          : status === 'delivered'
+            ? 'Collecting requests'
+            : 'Matching details need attention'}
       </p>
       <p className="mt-1 text-sm text-text-secondary">
-        {status === 'delivered'
-          ? 'Your verified details reached the coordinator. Your funded request remains onchain.'
-          : 'Provide your private matching details before this request can be considered.'}
+        {status === 'checking'
+          ? 'Checking whether your verified details reached the coordinator.'
+          : status === 'delivered'
+            ? 'Your verified details reached the coordinator. Your funded request remains onchain.'
+            : 'Provide your private matching details before this request can be considered.'}
       </p>
       {status !== 'delivered' ? (
         <button

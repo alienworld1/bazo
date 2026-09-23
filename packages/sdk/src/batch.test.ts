@@ -50,6 +50,21 @@ describe('Batch wire contract', () => {
         ],
       }),
     ).rejects.toThrow();
+    await expect(
+      lockBatchInstruction({
+        programAddress,
+        caller,
+        market,
+        batch: key(9),
+        requests: Array.from(
+          { length: MAX_BATCH_REQUESTS + 1 },
+          (_, index) => ({
+            request: key(index + 1),
+            escrow: key(index + 11),
+          }),
+        ),
+      }),
+    ).rejects.toThrow('invalid batch request set');
   });
 
   it('decodes a locked account with the Anchor option and vector layout', async () => {

@@ -50,8 +50,31 @@ export async function readRelevantBatch(
   );
   const batches = await Promise.all(keys.map(key => readBatch(key)));
   return (
-    batches.find(batch => batch?.status === 'locked') ?? batches[0] ?? null
+    batches.find(batch => batch?.status === 'locked') ??
+    batches.find(batch => batch?.status === 'open') ??
+    null
   );
+}
+
+export async function readCurrentOpenBatch(
+  market: string,
+): Promise<PublicBatch | null> {
+  const env = getEnvironment();
+  const now = await readChainUnixTimestamp();
+  const policy = await fetchBatchPolicy({
+    rpcUrl: env.SOLANA_RPC_URL,
+    programAddress: address(env.BAZO_PROGRAM_ID),
+    market: address(market),
+  });
+  if (!policy) return null;
+  const start = batchWindowStart(now, BigInt(policy.windowSeconds));
+  const key = await deriveBatchAddress(
+    address(env.BAZO_PROGRAM_ID),
+    address(market),
+    start,
+  );
+  const batch = await readBatch(key);
+  return batch?.status === 'open' ? batch : null;
 }
 
 export async function readBatchAvailability(

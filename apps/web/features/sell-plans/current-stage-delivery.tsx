@@ -43,14 +43,19 @@ export function CurrentStageDelivery({
           : { delivered: false },
       )
       .then(result => {
-        if (alive && result.delivered) setStatus('delivered');
+        if (alive) setStatus(result.delivered ? 'delivered' : 'idle');
       })
       .catch(() => undefined);
     return () => {
       alive = false;
     };
-  }, [connected?.account.address, owner, plan]);
-  if (connected?.account.address !== owner) return null;
+  }, [connected?.account.address, owner, plan, stageIndex, commitment]);
+  if (connected?.account.address !== owner)
+    return (
+      <p className="mt-8 border-t border-line-default pt-5 text-sm text-text-secondary">
+        Connect the wallet that owns this Plan to provide matching details.
+      </p>
+    );
   const stage = getPrivatePlanPackage(plan, owner)?.stages[stageIndex];
   const deliver = async () => {
     if (!stage) return;

@@ -9,7 +9,7 @@ import { readBuyRequest, readChainUnixTimestamp } from '@/server/buy-requests';
 import { getEnvironment } from '@/server/env';
 import { getEnabledMarkets } from '@/server/market-registry';
 import { readSpendableQuoteBalance } from '@/server/holdings';
-import { readBatch, readRelevantBatch } from '@/server/batches';
+import { readBatch, readCurrentOpenBatch } from '@/server/batches';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +32,7 @@ export default async function BuyRequestPage({
   ]);
   const batch = request.lockedBatch
     ? await readBatch(request.lockedBatch)
-    : await readRelevantBatch(request.market);
+    : await readCurrentOpenBatch(request.market);
   const expired =
     request.status === 'active' && BigInt(request.expiresAt) <= chainTime;
   const title =
@@ -44,7 +44,7 @@ export default async function BuyRequestPage({
           ? 'Refund available'
           : request.lockedBatch
             ? 'Locked'
-            : 'Sealed in next Batch';
+            : 'Request funded';
   const facts = [
     ['Private terms', 'Sealed'],
     [
@@ -98,7 +98,7 @@ export default async function BuyRequestPage({
           stockDecimals={market.tokenDecimals}
           symbol={market.symbol}
         />
-        <BuyRequestDelivery request={request} />
+        <BuyRequestDelivery key={request.commitmentHex} request={request} />
         {batch ? (
           <section className="mt-8 border-t border-line-default pt-5">
             <p

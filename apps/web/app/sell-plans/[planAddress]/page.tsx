@@ -78,6 +78,7 @@ export default async function SellPlanDetailPage({
         <OwnerStagePreview plan={plan.address} owner={plan.owner} />
         <PlanRecoveryPanel plan={plan.address} owner={plan.owner} />
         <CurrentStageDelivery
+          key={`${plan.currentStageIndex}:${plan.currentCommitment}`}
           plan={plan.address}
           owner={plan.owner}
           stageIndex={plan.currentStageIndex}

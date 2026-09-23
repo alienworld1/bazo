@@ -140,9 +140,7 @@ export async function startCrank(input: CrankInput): Promise<void> {
         continue;
       }
     }
-    return result
-      .sort((a, b) => compareAddressBytes(a.request, b.request))
-      .slice(0, MAX_BATCH_REQUESTS);
+    return result.sort((a, b) => compareAddressBytes(a.request, b.request));
   };
 
   const tick = async () => {
@@ -167,6 +165,8 @@ export async function startCrank(input: CrankInput): Promise<void> {
         now < BigInt(previous.lockDeadline)
       ) {
         const set = await eligible(previous);
+        if (set.length > MAX_BATCH_REQUESTS)
+          throw new Error('batch request cap exceeded');
         if (set.length > 0)
           await send(
             await lockBatchInstruction({
@@ -197,9 +197,11 @@ export async function startCrank(input: CrankInput): Promise<void> {
             }),
           );
       }
-    } catch {
+    } catch (error) {
       process.stderr.write(
-        'Batch coordination is waiting for a confirmed chain state.\n',
+        error instanceof Error && error.message === 'batch request cap exceeded'
+          ? 'Too many verified requests for this Batch. Its open window will expire without a lock.\n'
+          : 'Batch coordination is waiting for a confirmed chain state.\n',
       );
     } finally {
       busy = false;
