@@ -29,6 +29,12 @@ export async function GET(
       headers: { 'Cache-Control': 'no-store' },
     });
   } catch (error) {
+    // Keep wallet data out of logs; the exception identifies whether this was
+    // an RPC failure or a mismatch between the configured mint and its data.
+    console.error('Supported holding lookup failed', {
+      marketId,
+      reason: error instanceof Error ? error.message : 'unknown_error',
+    });
     const message =
       error instanceof Error && error.message === 'unsupported_mint_extension'
         ? "This stock uses token behavior Bazo doesn't support yet."

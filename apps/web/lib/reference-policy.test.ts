@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { MarketConfig } from './markets';
-import { confidenceRatioExceeds, evaluateReference } from './reference-policy';
+import {
+  canUseIndicativeBuyReference,
+  confidenceRatioExceeds,
+  evaluateReference,
+} from './reference-policy';
 
 const market: MarketConfig = {
   id: 'acme',
@@ -72,5 +76,34 @@ describe('reference policy', () => {
   it('compares confidence with integers rather than floating point', () => {
     expect(confidenceRatioExceeds('1', '10000', 1)).toBe(false);
     expect(confidenceRatioExceeds('2', '10000', 1)).toBe(true);
+  });
+
+  it('allows a verified out-of-session price only for indicative buy quoting', () => {
+    expect(
+      canUseIndicativeBuyReference(
+        evaluateReference(reference({ marketSession: 'overNight' }), market),
+      ),
+    ).toBe(true);
+    expect(
+      canUseIndicativeBuyReference(
+        evaluateReference(
+          reference({ marketSession: 'overNight', publisherCount: 2 }),
+          market,
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      canUseIndicativeBuyReference(
+        evaluateReference(
+          reference({ marketSession: 'overNight', now: 1200 }),
+          market,
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      canUseIndicativeBuyReference(
+        evaluateReference(reference({ marketSession: 'closed' }), market),
+      ),
+    ).toBe(false);
   });
 });

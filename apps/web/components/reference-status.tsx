@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
 import type { NormalizedReference } from '@/lib/markets';
+import { useBuyReference } from '@/features/buy-requests/use-buy-reference';
 
 const copy: Record<NormalizedReference['status'], string> = {
   valid: 'Reference fresh',
@@ -16,26 +16,15 @@ const copy: Record<NormalizedReference['status'], string> = {
   invalid: 'The underlying reference could not be verified.',
 };
 
-export function ReferenceStatus({ marketId }: { marketId: string }) {
-  const [reference, setReference] = useState<NormalizedReference>();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(false);
-    try {
-      const response = await fetch(`/api/markets/${marketId}/reference`);
-      if (!response.ok) throw new Error();
-      setReference(await response.json());
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [marketId]);
-  useEffect(() => {
-    void Promise.resolve().then(load);
-  }, [load]);
+export function ReferenceStatus({
+  marketId,
+  state,
+}: {
+  marketId: string;
+  state?: ReturnType<typeof useBuyReference>;
+}) {
+  const localState = useBuyReference(marketId, !state);
+  const { reference, loading, error, reload } = state ?? localState;
   if (loading && !reference)
     return (
       <p aria-live="polite" className="text-sm text-text-secondary">
@@ -51,7 +40,7 @@ export function ReferenceStatus({ marketId }: { marketId: string }) {
         </p>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => void reload()}
           className="mt-2 text-sm text-text-primary underline"
         >
           Retry

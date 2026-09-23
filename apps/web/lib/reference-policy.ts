@@ -41,15 +41,6 @@ export function evaluateReference(
   } else if (ageSeconds > market.maxReferenceAgeSeconds) {
     status = 'stale';
     reasons.push('reference_too_old');
-  } else if (input.marketSession === 'closed') {
-    status = 'closed';
-    reasons.push('market_closed');
-  } else if (
-    input.marketSession === 'unknown' ||
-    !market.allowedSessions.includes(input.marketSession)
-  ) {
-    status = 'session_not_allowed';
-    reasons.push('session_not_allowed');
   } else if (input.publisherCount < market.minPublisherCount) {
     status = 'insufficient_publishers';
     reasons.push('publisher_count_too_low');
@@ -62,6 +53,15 @@ export function evaluateReference(
   ) {
     status = 'confidence_too_wide';
     reasons.push('confidence_ratio_too_wide');
+  } else if (input.marketSession === 'closed') {
+    status = 'closed';
+    reasons.push('market_closed');
+  } else if (
+    input.marketSession === 'unknown' ||
+    !market.allowedSessions.includes(input.marketSession)
+  ) {
+    status = 'session_not_allowed';
+    reasons.push('session_not_allowed');
   }
 
   return {
@@ -71,6 +71,17 @@ export function evaluateReference(
     status,
     reasons,
   };
+}
+
+export function canUseIndicativeBuyReference(
+  reference: NormalizedReference | undefined,
+): reference is NormalizedReference {
+  return Boolean(
+    reference &&
+    (reference.status === 'valid' ||
+      (reference.status === 'session_not_allowed' &&
+        reference.marketSession !== 'unknown')),
+  );
 }
 
 export function confidenceRatioExceeds(

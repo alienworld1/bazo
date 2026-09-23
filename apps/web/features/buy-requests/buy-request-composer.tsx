@@ -19,6 +19,7 @@ import {
   parseDisplayAmountToRaw,
 } from '@/lib/token-amounts';
 import type { MarketConfig, SupportedHolding } from '@/lib/markets';
+import { canUseIndicativeBuyReference } from '@/lib/reference-policy';
 import { solanaClient } from '@/components/solana-client';
 import { ReferenceStatus } from '@/components/reference-status';
 import {
@@ -39,6 +40,9 @@ type QuoteBalance = {
   decimals: number;
 };
 
+const MIN_SIGNING_WINDOW_SECONDS = 120n;
+const EXPIRY_FINALITY_BUFFER_SECONDS = 60n;
+
 export function BuyRequestComposer({
   market,
   programAddress,
@@ -48,20 +52,27 @@ export function BuyRequestComposer({
 }) {
   const connected = useConnectedWallet(solanaClient);
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const buyer = connected?.account.address;
   const [balance, setBalance] = useState<QuoteBalance>();
   const [holding, setHolding] = useState<SupportedHolding>();
   const [quantity, setQuantity] = useState('');
   const [premium, setPremium] = useState('1');
-  const [expiry, setExpiry] = useState(() =>
-    defaultExpiry(market.batchDurationSeconds),
-  );
+  const [expiry, setExpiry] = useState('');
   const [partial, setPartial] = useState(true);
   const [prepared, setPrepared] = useState<PreparedBuyRequest>();
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
+  const [balanceError, setBalanceError] = useState<string>();
   const [submissionUncertain, setSubmissionUncertain] = useState(false);
-  const reference = useBuyReference(market.id);
+  const referenceState = useBuyReference(market.id);
+  const { reference } = referenceState;
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      setMounted(true);
+      setExpiry(defaultExpiry(market.batchDurationSeconds));
+    });
+  }, [market.batchDurationSeconds]);
   const quantityError =
     quantity &&
     holding &&
@@ -80,22 +91,36 @@ export function BuyRequestComposer({
     if (!buyer) return;
     setBalance(undefined);
     setHolding(undefined);
-    try {
-      const [quoteResponse, holdingResponse] = await Promise.all([
-        fetch(
+    setBalanceError(undefined);
+    const [quoteResult, holdingResult] = await Promise.allSettled([
+      (async () => {
+        const response = await fetch(
           `/api/markets/${market.id}/quote-balance?owner=${encodeURIComponent(buyer)}`,
           { cache: 'no-store' },
-        ),
-        fetch(
+        );
+        if (!response.ok) throw new Error('quote');
+        return (await response.json()) as QuoteBalance;
+      })(),
+      (async () => {
+        const response = await fetch(
           `/api/markets/${market.id}/holding?owner=${encodeURIComponent(buyer)}`,
           { cache: 'no-store' },
-        ),
-      ]);
-      if (!quoteResponse.ok || !holdingResponse.ok) throw new Error();
-      setBalance(await quoteResponse.json());
-      setHolding(await holdingResponse.json());
-    } catch {
-      setError("We couldn't refresh your token balances. Nothing moved.");
+        );
+        if (!response.ok) throw new Error('stock');
+        return (await response.json()) as SupportedHolding;
+      })(),
+    ]);
+    if (quoteResult.status === 'fulfilled') setBalance(quoteResult.value);
+    if (holdingResult.status === 'fulfilled') setHolding(holdingResult.value);
+    if (
+      quoteResult.status === 'rejected' &&
+      holdingResult.status === 'rejected'
+    ) {
+      setBalanceError("We couldn't refresh your wallet balances. Try again.");
+    } else if (quoteResult.status === 'rejected') {
+      setBalanceError("We couldn't read your quote balance. Try again.");
+    } else if (holdingResult.status === 'rejected') {
+      setBalanceError("We couldn't read this stock's mint details. Try again.");
     }
   }, [buyer, market.id]);
   useEffect(() => {
@@ -140,7 +165,8 @@ export function BuyRequestComposer({
     suggestedQuote <= 18_446_744_073_709_551_615n,
   );
   const useMaximum = () => {
-    if (!balance || !holding || reference?.status !== 'valid') return;
+    if (!balance || !holding || !canUseIndicativeBuyReference(reference))
+      return;
     try {
       const raw = maxAffordableRawQuantity(BigInt(balance.rawAmount), {
         stockDecimals: market.tokenDecimals,
@@ -164,8 +190,11 @@ export function BuyRequestComposer({
   };
   const review = async () => {
     if (!buyer || !balance?.sourceTokenAccount || !draft || !canReview) return;
-    if (draft.expiresAt <= BigInt(Math.floor(Date.now() / 1000))) {
-      setError('Choose a later request expiry.');
+    if (
+      draft.expiresAt <=
+      BigInt(Math.floor(Date.now() / 1000)) + MIN_SIGNING_WINDOW_SECONDS
+    ) {
+      setError('Choose an expiry at least two minutes from now.');
       return;
     }
     setError(undefined);
@@ -252,16 +281,37 @@ export function BuyRequestComposer({
         multiplier: holding?.multiplierContext ?? '1',
         sourceTokenAccount: balance.sourceTokenAccount,
         balanceAfter: BigInt(balance.rawAmount) - suggestedQuote,
-        referenceLabel:
-          reference?.status === 'valid'
-            ? `${reference.formattedPrice} (${reference.feedUpdateTimestamp})`
-            : 'Unavailable',
+        referenceLabel: canUseIndicativeBuyReference(reference)
+          ? `${reference.formattedPrice} (${reference.feedUpdateTimestamp})`
+          : 'Unavailable',
       });
       setStatus(undefined);
     } catch {
       setStatus(undefined);
       setError("We couldn't prepare this request. Nothing moved.");
     }
+  };
+  const recoverExpiredRequest = async (request: PreparedBuyRequest) => {
+    if (
+      BigInt(Math.floor(Date.now() / 1000)) <
+      request.expiresAt + EXPIRY_FINALITY_BUFFER_SECONDS
+    )
+      return false;
+    const account = await solanaClient.rpc
+      .getAccountInfo(address(request.request), {
+        encoding: 'base64',
+        commitment: 'finalized',
+      })
+      .send();
+    if (account.value !== null) return false;
+    setStatus(undefined);
+    setSubmissionUncertain(false);
+    setPrepared(undefined);
+    setError(
+      `This request expired before it reached Devnet. No ${market.quoteSymbol} was locked. Choose a new expiry and review it again.`,
+    );
+    void loadBalance();
+    return true;
   };
   const place = async () => {
     if (
@@ -272,6 +322,16 @@ export function BuyRequestComposer({
       submissionUncertain
     )
       return;
+    if (
+      prepared.expiresAt <=
+      BigInt(Math.floor(Date.now() / 1000)) + MIN_SIGNING_WINDOW_SECONDS
+    ) {
+      setPrepared(undefined);
+      setError(
+        'This request is too close to expiry. Choose a later time and review it again.',
+      );
+      return;
+    }
     setError(undefined);
     let approvalStarted = false;
     try {
@@ -338,6 +398,17 @@ export function BuyRequestComposer({
       if (instruction.request !== prepared.request)
         throw new Error('stale review');
       await simulateBuyRequest([createRecipient, instruction.instruction]);
+      if (
+        prepared.expiresAt <=
+        BigInt(Math.floor(Date.now() / 1000)) + MIN_SIGNING_WINDOW_SECONDS
+      ) {
+        setStatus(undefined);
+        setPrepared(undefined);
+        setError(
+          'This request is too close to expiry. Choose a later time and review it again.',
+        );
+        return;
+      }
       setStatus('Awaiting approval…');
       approvalStarted = true;
       const result = await solanaClient.sendTransaction([
@@ -397,6 +468,11 @@ export function BuyRequestComposer({
       } catch {
         // Verification may be temporarily unavailable.
       }
+      try {
+        if (await recoverExpiredRequest(prepared)) return;
+      } catch {
+        // Keep the request uncertain if Devnet cannot establish its absence.
+      }
       const rejected =
         failure instanceof Error && /reject|cancel/i.test(failure.message);
       if (rejected) setSubmissionUncertain(false);
@@ -410,6 +486,7 @@ export function BuyRequestComposer({
   const retryVerification = async () => {
     if (!prepared || !buyer || buyer !== prepared.opening.buyer) return;
     setStatus('Verifying request…');
+    let verificationUnavailable = false;
     try {
       if (
         await reconcileFundedBuyRequest({
@@ -427,18 +504,24 @@ export function BuyRequestComposer({
         router.replace(`/buy-requests/${prepared.request}`);
         return;
       }
-      setError(
-        "We haven't verified this request yet. Wait for Devnet to settle before changing your request.",
-      );
     } catch {
-      setError(
-        'Devnet is temporarily unavailable. Your funds remain governed by any onchain request.',
-      );
-    } finally {
-      setStatus(undefined);
+      verificationUnavailable = true;
     }
+    try {
+      if (await recoverExpiredRequest(prepared)) return;
+    } catch {
+      verificationUnavailable = true;
+    }
+    setError(
+      verificationUnavailable
+        ? 'Devnet is temporarily unavailable. Your funds remain governed by any onchain request.'
+        : "We haven't verified this request yet. Wait for Devnet to settle before changing your request.",
+    );
+    setStatus(undefined);
   };
-  if (!connected)
+  // Wallet state is browser-only and can already be populated during the
+  // first client render. Keep the server and hydration markup consistent.
+  if (!mounted || !connected)
     return (
       <section className="mx-auto max-w-5xl">
         <h1 className="text-3xl font-medium text-text-primary">
@@ -514,7 +597,7 @@ export function BuyRequestComposer({
             disabled={
               !balance?.sourceTokenAccount ||
               !holding ||
-              reference?.status !== 'valid'
+              !canUseIndicativeBuyReference(reference)
             }
             className="min-h-11 border border-line-default px-4 text-sm text-text-primary disabled:text-text-disabled"
           >
@@ -568,6 +651,18 @@ export function BuyRequestComposer({
               </span>
             </span>
           </label>
+          {balanceError ? (
+            <p role="alert" className="text-sm text-warning">
+              {balanceError}{' '}
+              <button
+                type="button"
+                onClick={() => void loadBalance()}
+                className="underline"
+              >
+                Retry
+              </button>
+            </p>
+          ) : null}
           {error ? (
             <p role="alert" className="text-sm text-warning">
               {error}
@@ -584,13 +679,15 @@ export function BuyRequestComposer({
         <aside className="border-y border-line-default py-5">
           <h2 className="font-medium text-text-primary">Market and escrow</h2>
           <div className="mt-5">
-            <ReferenceStatus marketId={market.id} />
+            <ReferenceStatus marketId={market.id} state={referenceState} />
           </div>
           <p className="mt-6 text-sm text-text-secondary">
             Current indicative ceiling
           </p>
           <p className="mt-1 tabular-nums text-text-primary">
-            {reference?.status === 'valid' && suggestedQuote > 0n && balance
+            {canUseIndicativeBuyReference(reference) &&
+            suggestedQuote > 0n &&
+            balance
               ? `${formatDisplayAmount(suggestedQuote.toString(), balance.decimals)} ${market.quoteSymbol}`
               : 'Unavailable'}
           </p>
@@ -598,6 +695,12 @@ export function BuyRequestComposer({
             Indicative only. Settlement uses the verified Pyth reference at that
             time.
           </p>
+          {reference?.status === 'session_not_allowed' ? (
+            <p className="mt-2 text-sm text-text-secondary">
+              You can prepare a request now. This Market settles only during its
+              supported session, so choose an expiry that gives it time to reopen.
+            </p>
+          ) : null}
           <p className="mt-6 text-sm text-text-secondary">
             Spendable {market.quoteSymbol} balance
           </p>
@@ -606,6 +709,13 @@ export function BuyRequestComposer({
               ? `${formatDisplayAmount(balance.rawAmount, balance.decimals)} (${balance.rawAmount} raw)`
               : 'Checking quote balance…'}
           </p>
+          {balance?.rawAmount === '0' ? (
+            <p className="mt-2 break-all text-sm text-text-secondary">
+              Your connected wallet needs this Market&apos;s Devnet{' '}
+              {market.quoteSymbol} test token before you can place a request.
+              Mint: {market.quoteMint}
+            </p>
+          ) : null}
           <p className="mt-6 text-sm text-text-secondary">Quote to lock</p>
           <p className="mt-1 font-mono text-sm text-text-primary">
             {suggestedQuote > 0n && balance
@@ -635,7 +745,9 @@ function parsePremium(value: string): number {
   return Number(signed);
 }
 function defaultExpiry(batchDurationSeconds: number): string {
-  const date = new Date(Date.now() + batchDurationSeconds * 2_000);
+  const date = new Date(
+    Date.now() + Math.max(86_400, batchDurationSeconds * 2) * 1_000,
+  );
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
 }
@@ -676,7 +788,7 @@ function computeSuggestedQuote(
   stockMultiplier: string,
   quoteDecimals: number,
 ): bigint {
-  if (!draft || reference?.status !== 'valid') return 0n;
+  if (!draft || !canUseIndicativeBuyReference(reference)) return 0n;
   try {
     return quoteCapFromReference({
       targetRawQuantity: draft.raw,
