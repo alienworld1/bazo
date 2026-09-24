@@ -41,6 +41,11 @@ import {
 import { decodePublicSellPlan } from '../../../apps/web/lib/plan-projection';
 import { startCrank } from './crank';
 import { readSignedReference } from './signed-reference';
+import {
+  PYTH_VERIFIER_PROGRAM,
+  PYTH_VERIFIER_STORAGE,
+  readPythVerifierTreasury,
+} from './pyth-accounts';
 
 const rpcUrl = required('SOLANA_RPC_URL');
 const programAddress = address(required('BAZO_PROGRAM_ID'));
@@ -300,9 +305,9 @@ async function settleLockedBatch(
     proceedsVault: address(plan.proceedsVault),
     stockTokenProgram: address(required('BAZO_STOCK_TOKEN_PROGRAM')),
     quoteTokenProgram: address(required('BAZO_QUOTE_TOKEN_PROGRAM')),
-    pythProgram: address('pytd2yyk641x7ak7mkaasSJVXh6YYZnC7wTmtgAyxPt'),
-    pythStorage: address('3rdJbqfnagQ4yx9HXJViD4zc4xpiSqmFsKpPuSCQVyQL'),
-    pythTreasury: address('Gx4MBPb1vqZLJajZmsKLg8fGw9ErhoKsR8LeKcCKFyak'),
+    pythProgram: PYTH_VERIFIER_PROGRAM,
+    pythStorage: PYTH_VERIFIER_STORAGE,
+    pythTreasury: await readPythVerifierTreasury(rpcUrl),
     stageIndex: stage.stageIndex,
     stage: {
       rawQuantity: stage.rawQuantity,

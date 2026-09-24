@@ -49,7 +49,7 @@ export async function readSignedReference(input: {
         channel: 'fixed_rate@1000ms',
       }),
       cache: 'no-store',
-      signal: AbortSignal.timeout(4_000),
+      signal: AbortSignal.timeout(8_000),
     },
   );
   if (!response.ok) throw new Error('signed reference unavailable');

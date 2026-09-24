@@ -9,6 +9,7 @@ import {
   getBase64EncodedWireTransaction,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageComputeUnitLimit,
+  setTransactionMessageLoadedAccountsDataSizeLimit,
   setTransactionMessageLifetimeUsingBlockhash,
   signTransactionMessageWithSigners,
   type Address,
@@ -82,15 +83,18 @@ export async function startCrank(input: CrankInput): Promise<void> {
     const { value: blockhash } = await rpc
       .getLatestBlockhash({ commitment: 'confirmed' })
       .send();
-    const message = setTransactionMessageComputeUnitLimit(
-      1_400_000,
-      appendTransactionMessageInstructions(
-        Array.isArray(instructions) ? instructions : [instructions],
-        setTransactionMessageLifetimeUsingBlockhash(
-          blockhash,
-          setTransactionMessageFeePayerSigner(
-            signer,
-            createTransactionMessage({ version: 1 }),
+    const message = setTransactionMessageLoadedAccountsDataSizeLimit(
+      64 * 1024 * 1024,
+      setTransactionMessageComputeUnitLimit(
+        1_400_000,
+        appendTransactionMessageInstructions(
+          Array.isArray(instructions) ? instructions : [instructions],
+          setTransactionMessageLifetimeUsingBlockhash(
+            blockhash,
+            setTransactionMessageFeePayerSigner(
+              signer,
+              createTransactionMessage({ version: 1 }),
+            ),
           ),
         ),
       ),
