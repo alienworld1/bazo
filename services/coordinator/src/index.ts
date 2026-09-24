@@ -80,7 +80,7 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   try {
     if (request.method === 'POST' && request.url === '/v1/openings/request') {
       const opening = parseBuyOpening(await readBody(request));
-      const fingerprint = await verifyRequest(opening);
+      const fingerprint = await verifyDeliveredRequest(opening);
       const previous = requests.get(opening.request);
       if (previous && previous.fingerprint !== fingerprint)
         return reply(response, 409, { code: 'conflict' });
@@ -107,7 +107,7 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
       const stored = requests.get(requestOpeningAddress);
       if (!stored) return reply(response, 200, { delivered: false });
       try {
-        await verifyRequest(stored.opening);
+        await verifyDeliveredRequest(stored.opening);
         return reply(response, 200, { delivered: true });
       } catch {
         requests.delete(requestOpeningAddress);
@@ -143,8 +143,8 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
     if (request.method === 'GET' && batchAddress)
       return reply(response, 200, await batchAvailability(batchAddress));
     return reply(response, 404, { code: 'not_found' });
-  } catch {
-    return reply(response, 400, { code: 'unavailable' });
+  } catch (error) {
+    return reply(response, 400, { code: safeIngressError(error) });
   }
 }
 
@@ -344,6 +344,33 @@ async function verifyRequest(
   return fingerprint;
 }
 
+async function verifyDeliveredRequest(
+  opening: BuyRequestOpeningV1,
+): Promise<string> {
+  const request = await fetchBuyRequest({
+    rpcUrl,
+    programAddress,
+    requestAddress: opening.request,
+  });
+  if (!request) throw new Error('request mismatch');
+  if (!request.lockedBatch) return verifyRequest(opening);
+  const batch = await fetchBatch({
+    rpcUrl,
+    programAddress,
+    batchAddress: request.lockedBatch,
+  });
+  const chainTime = await readChainTime();
+  if (
+    !batch ||
+    batch.status !== 'locked' ||
+    batch.market !== request.market ||
+    !batch.requests.includes(opening.request) ||
+    chainTime >= BigInt(batch.lockDeadline)
+  )
+    throw new Error('request mismatch');
+  return verifyRequest(opening, batch.address, chainTime);
+}
+
 async function verifyPlan(
   opening: CanonicalStageV1,
   chainTime?: bigint,
@@ -421,6 +448,23 @@ function authorized(value: string | string[] | undefined): boolean {
 function reply(response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, { 'content-type': 'application/json' });
   response.end(JSON.stringify(body));
+}
+const ingressErrorCodes = new Map([
+  ['invalid opening', 'invalid_opening'],
+  ['request mismatch', 'request_mismatch'],
+  ['request expired', 'request_expired'],
+  ['request commitment mismatch', 'request_commitment_mismatch'],
+  ['escrow unavailable', 'escrow_unavailable'],
+  ['escrow mismatch', 'escrow_mismatch'],
+  ['plan unavailable', 'plan_unavailable'],
+  ['plan mismatch', 'plan_mismatch'],
+  ['stage commitment mismatch', 'stage_commitment_mismatch'],
+  ['stock vault unavailable', 'stock_vault_unavailable'],
+  ['stock vault mismatch', 'stock_vault_mismatch'],
+]);
+function safeIngressError(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  return ingressErrorCodes.get(message) ?? 'unavailable';
 }
 function required(key: string): string {
   const value = process.env[key];
