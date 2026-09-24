@@ -1,0 +1,242 @@
+[
+  {
+    "rawStock": "1",
+    "stockDecimals": 0,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "1",
+    "priceExponent": 0,
+    "premiumBps": 0,
+    "quoteDecimals": 0,
+    "expectedCharge": "1"
+  },
+  {
+    "rawStock": "1",
+    "stockDecimals": 0,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "1",
+    "priceExponent": 0,
+    "premiumBps": 1,
+    "quoteDecimals": 0,
+    "expectedCharge": "2"
+  },
+  {
+    "rawStock": "3",
+    "stockDecimals": 0,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "1",
+    "priceExponent": -1,
+    "premiumBps": 0,
+    "quoteDecimals": 0,
+    "expectedCharge": "1"
+  },
+  {
+    "rawStock": "3",
+    "stockDecimals": 0,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "1",
+    "priceExponent": -1,
+    "premiumBps": -1,
+    "quoteDecimals": 0,
+    "expectedCharge": "1"
+  },
+  {
+    "rawStock": "10",
+    "stockDecimals": 0,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "123",
+    "priceExponent": -2,
+    "premiumBps": 50,
+    "quoteDecimals": 0,
+    "expectedCharge": "13"
+  },
+  {
+    "rawStock": "1000000",
+    "stockDecimals": 6,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "12345",
+    "priceExponent": -2,
+    "premiumBps": 100,
+    "quoteDecimals": 6,
+    "expectedCharge": "124684500"
+  },
+  {
+    "rawStock": "2500001",
+    "stockDecimals": 6,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "31415926",
+    "priceExponent": -6,
+    "premiumBps": 75,
+    "quoteDecimals": 6,
+    "expectedCharge": "79128896"
+  },
+  {
+    "rawStock": "999999",
+    "stockDecimals": 6,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "1",
+    "priceExponent": -6,
+    "premiumBps": -9999,
+    "quoteDecimals": 6,
+    "expectedCharge": "1"
+  },
+  {
+    "rawStock": "1",
+    "stockDecimals": 0,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "1",
+    "priceExponent": 18,
+    "premiumBps": 0,
+    "quoteDecimals": 0,
+    "expectedCharge": "1000000000000000000"
+  },
+  {
+    "rawStock": "1000000",
+    "stockDecimals": 6,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "1",
+    "priceExponent": -18,
+    "premiumBps": 0,
+    "quoteDecimals": 18,
+    "expectedCharge": "1"
+  },
+  {
+    "rawStock": "1000000",
+    "stockDecimals": 6,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "1",
+    "priceExponent": 0,
+    "premiumBps": 1000000,
+    "quoteDecimals": 6,
+    "expectedCharge": "101000000"
+  },
+  {
+    "rawStock": "1000000",
+    "stockDecimals": 6,
+    "multiplierBits": "0x3ff8000000000000",
+    "rawPrice": "100",
+    "priceExponent": -2,
+    "premiumBps": 50,
+    "quoteDecimals": 6,
+    "expectedCharge": "1507500"
+  },
+  {
+    "rawStock": "1000000",
+    "stockDecimals": 6,
+    "multiplierBits": "0x3fe0000000000000",
+    "rawPrice": "100",
+    "priceExponent": -2,
+    "premiumBps": 50,
+    "quoteDecimals": 6,
+    "expectedCharge": "502500"
+  },
+  {
+    "rawStock": "1000000",
+    "stockDecimals": 6,
+    "multiplierBits": "0x3ff4000000000000",
+    "rawPrice": "100",
+    "priceExponent": -2,
+    "premiumBps": 0,
+    "quoteDecimals": 6,
+    "expectedCharge": "1250000"
+  },
+  {
+    "rawStock": "1000000",
+    "stockDecimals": 6,
+    "multiplierBits": "0x3ff199999999999a",
+    "rawPrice": "100",
+    "priceExponent": -2,
+    "premiumBps": 0,
+    "quoteDecimals": 6,
+    "expectedCharge": "1100001"
+  },
+  {
+    "rawStock": "1000000",
+    "stockDecimals": 6,
+    "multiplierBits": "0x3fefae147ae147ae",
+    "rawPrice": "100",
+    "priceExponent": -2,
+    "premiumBps": 0,
+    "quoteDecimals": 6,
+    "expectedCharge": "990000"
+  },
+  {
+    "rawStock": "17",
+    "stockDecimals": 2,
+    "multiplierBits": "0x4008000000000000",
+    "rawPrice": "123456",
+    "priceExponent": -4,
+    "premiumBps": 333,
+    "quoteDecimals": 3,
+    "expectedCharge": "6506"
+  },
+  {
+    "rawStock": "123456789",
+    "stockDecimals": 9,
+    "multiplierBits": "0x4004000000000000",
+    "rawPrice": "123456789",
+    "priceExponent": -8,
+    "premiumBps": 125,
+    "quoteDecimals": 6,
+    "expectedCharge": "385803"
+  },
+  {
+    "rawStock": "9000000000000",
+    "stockDecimals": 6,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "999999",
+    "priceExponent": -4,
+    "premiumBps": 0,
+    "quoteDecimals": 6,
+    "expectedCharge": "899999100000000"
+  },
+  {
+    "rawStock": "1000000000",
+    "stockDecimals": 9,
+    "multiplierBits": "0x3ff8000000000000",
+    "rawPrice": "1",
+    "priceExponent": 4,
+    "premiumBps": -100,
+    "quoteDecimals": 6,
+    "expectedCharge": "14850000000"
+  },
+  {
+    "rawStock": "500000",
+    "stockDecimals": 6,
+    "multiplierBits": "0x4010000000000000",
+    "rawPrice": "250",
+    "priceExponent": -2,
+    "premiumBps": -500,
+    "quoteDecimals": 6,
+    "expectedCharge": "4750000"
+  },
+  {
+    "rawStock": "7",
+    "stockDecimals": 0,
+    "multiplierBits": "0x3ff0000000000000",
+    "rawPrice": "1",
+    "priceExponent": 0,
+    "premiumBps": 0,
+    "quoteDecimals": 6,
+    "expectedCharge": "7000000"
+  },
+  {
+    "rawStock": "99",
+    "stockDecimals": 2,
+    "multiplierBits": "0x3fb999999999999a",
+    "rawPrice": "3",
+    "priceExponent": 1,
+    "premiumBps": 1000,
+    "quoteDecimals": 4,
+    "expectedCharge": "32671"
+  },
+  {
+    "rawStock": "1234567",
+    "stockDecimals": 6,
+    "multiplierBits": "0x4024000000000000",
+    "rawPrice": "25001",
+    "priceExponent": -3,
+    "premiumBps": 12,
+    "quoteDecimals": 6,
+    "expectedCharge": "309024481"
+  }
+]
