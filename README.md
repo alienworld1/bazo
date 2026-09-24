@@ -31,6 +31,18 @@ state is read from Solana after restart.
 See [Batch protocol contract](docs/batch-protocol.md) for window identity, set
 ordering, limits, and timeout recovery.
 
+For a repeatable Devnet check, run this from `services/coordinator` with the
+configured root `.env`:
+
+```bash
+ANCHOR_WALLET=/absolute/path/to/keypair.json node --env-file=../../.env --import tsx devnet-qa.mjs
+```
+
+The check funds disposable Plan and request fixtures, compares proposals across process
+restarts, expires a lock from a separate wallet, and verifies buyer refunds.
+It keeps owner-only opening recovery files in the ignored `target/devnet-qa`
+directory; keep them until the disposable Plans are no longer needed.
+
 The Pyth key and a credential-bearing RPC URL are server-only. The app exposes only normalized public Market and reference data.
 
 ## Checks
