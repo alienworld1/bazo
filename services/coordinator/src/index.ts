@@ -4,8 +4,15 @@ import {
   type ServerResponse,
 } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { address, createSolanaRpc, parseBase64RpcAccount } from '@solana/kit';
+import {
+  address,
+  createSolanaRpc,
+  parseBase64RpcAccount,
+  type Address,
+  type Instruction,
+} from '@solana/kit';
 import { decodeToken } from '@solana-program/token-2022';
+import { findAssociatedTokenPda } from '@solana-program/token-2022';
 import {
   hashCanonicalStage,
   toHex,
@@ -16,9 +23,15 @@ import {
   deriveMarketAddress,
   fetchBatch,
   fetchBuyRequest,
+  fetchBatchOutcome,
+  fetchPlanReservation,
+  fetchSettlementPolicy,
   hashBuyRequestOpening,
   parseBuyOpening,
   parseStageOpening,
+  reservePlanInstruction,
+  releasePlanReservationInstruction,
+  settlementInstructions,
   type BuyRequestOpeningV1,
   type MatchBuyer,
   type MatchSeller,
@@ -27,6 +40,7 @@ import {
 } from '@bazo/sdk';
 import { decodePublicSellPlan } from '../../../apps/web/lib/plan-projection';
 import { startCrank } from './crank';
+import { readSignedReference } from './signed-reference';
 
 const rpcUrl = required('SOLANA_RPC_URL');
 const programAddress = address(required('BAZO_PROGRAM_ID'));
@@ -67,6 +81,7 @@ await startCrank({
   requests,
   readChainTime,
   verifyRequest,
+  settleLockedBatch,
 });
 createServer((request, response) => {
   void handle(request, response);
@@ -146,6 +161,208 @@ async function handle(request: IncomingMessage, response: ServerResponse) {
   } catch (error) {
     return reply(response, 400, { code: safeIngressError(error) });
   }
+}
+
+async function settleLockedBatch(
+  batch: PublicBatch,
+  caller: Address,
+  send: (instructions: Instruction | Instruction[]) => Promise<void>,
+): Promise<void> {
+  if (
+    await fetchBatchOutcome({
+      rpcUrl,
+      programAddress,
+      batch: address(batch.address),
+    })
+  )
+    return;
+  await batchAvailability(batch.address);
+  const proposal = proposals.get(batch.address);
+  if (!proposal) return;
+  const storedStage = plans.get(proposal.plan);
+  if (!storedStage || storedStage.fingerprint !== proposal.stageFingerprint)
+    return;
+  const stage = storedStage.opening;
+  const now = await readChainTime();
+  if (now >= BigInt(batch.lockDeadline)) return;
+  await verifyPlan(stage, now);
+  const staleReservation = await fetchPlanReservation({
+    rpcUrl,
+    programAddress,
+    plan: address(stage.plan),
+    stageIndex: stage.stageIndex,
+  });
+  if (staleReservation && now >= BigInt(staleReservation.lockDeadline))
+    await send(
+      await releasePlanReservationInstruction({
+        programAddress,
+        caller,
+        plan: address(stage.plan),
+        stageIndex: stage.stageIndex,
+      }),
+    );
+  const policy = await fetchSettlementPolicy({
+    rpcUrl,
+    programAddress,
+    market: address(batch.market),
+  });
+  if (!policy || policy.reservationAuthority !== caller)
+    throw new Error('settlement policy unavailable');
+  const market = await readMarketSettlementPolicy(batch.market);
+  const reference = await readSignedReference({
+    feedId: market.feedId,
+    allowedSessionMask: market.allowedSessionMask & stage.allowedSessionMask,
+    maximumAgeSeconds: Math.min(
+      market.maximumAgeSeconds,
+      stage.maxReferenceAgeSeconds,
+    ),
+    minimumPublisherCount: policy.minimumPublisherCount,
+    maximumConfidenceRatioBps: policy.maximumConfidenceRatioBps,
+    chainTime: now,
+  });
+  const settlementRequests = [];
+  for (const requestAddress of batch.requests) {
+    const stored = requests.get(requestAddress);
+    if (
+      !stored ||
+      (await verifyRequest(stored.opening, batch.address, now)) !==
+        stored.fingerprint
+    )
+      return;
+    const request = await fetchBuyRequest({
+      rpcUrl,
+      programAddress,
+      requestAddress,
+    });
+    if (!request) return;
+    const [recipientStockAccount] = await findAssociatedTokenPda({
+      owner: stored.opening.recipient,
+      mint: address(required('BAZO_STOCK_MINT')),
+      tokenProgram: address(required('BAZO_STOCK_TOKEN_PROGRAM')),
+    });
+    settlementRequests.push({
+      request: address(requestAddress),
+      escrow: address(request.escrow),
+      recipientStockAccount,
+      targetRawQuantity: stored.opening.targetRawQuantity,
+      maxPremiumBps: stored.opening.maxPremiumBps,
+      allowPartialFills: stored.opening.allowPartialFills,
+      salt: stored.opening.salt,
+    });
+  }
+  const planAccount = await readAccount(stage.plan);
+  const plan =
+    planAccount && decodePublicSellPlan(planAccount.data, stage.plan);
+  if (
+    !plan ||
+    plan.currentStageIndex !== stage.stageIndex ||
+    plan.status !== 'active'
+  )
+    return;
+  let reservation = await fetchPlanReservation({
+    rpcUrl,
+    programAddress,
+    plan: address(plan.address),
+    stageIndex: stage.stageIndex,
+  });
+  if (!reservation) {
+    await send(
+      await reservePlanInstruction({
+        programAddress,
+        caller,
+        market: address(batch.market),
+        plan: address(plan.address),
+        batch: address(batch.address),
+        stageIndex: stage.stageIndex,
+      }),
+    );
+    reservation = await fetchPlanReservation({
+      rpcUrl,
+      programAddress,
+      plan: address(plan.address),
+      stageIndex: stage.stageIndex,
+    });
+  }
+  if (
+    reservation?.batch !== batch.address ||
+    reservation.lockDeadline !== batch.lockDeadline
+  )
+    return;
+  const signed = await settlementInstructions({
+    programAddress,
+    caller,
+    market: address(batch.market),
+    plan: address(plan.address),
+    batch: address(batch.address),
+    stockMint: address(required('BAZO_STOCK_MINT')),
+    quoteMint: address(required('BAZO_QUOTE_MINT')),
+    stockVault: address(plan.stockVault),
+    proceedsVault: address(plan.proceedsVault),
+    stockTokenProgram: address(required('BAZO_STOCK_TOKEN_PROGRAM')),
+    quoteTokenProgram: address(required('BAZO_QUOTE_TOKEN_PROGRAM')),
+    pythProgram: address('pytd2yyk641x7ak7mkaasSJVXh6YYZnC7wTmtgAyxPt'),
+    pythStorage: address('3rdJbqfnagQ4yx9HXJViD4zc4xpiSqmFsKpPuSCQVyQL'),
+    pythTreasury: address('Gx4MBPb1vqZLJajZmsKLg8fGw9ErhoKsR8LeKcCKFyak'),
+    stageIndex: stage.stageIndex,
+    stage: {
+      rawQuantity: stage.rawQuantity,
+      minPremiumBps: stage.minPremiumBps,
+      allowedSessionMask: stage.allowedSessionMask,
+      maxReferenceAgeSeconds: stage.maxReferenceAgeSeconds,
+      nextCommitment: stage.nextCommitment,
+      salt: stage.salt,
+    },
+    requests: settlementRequests,
+    signedReference: reference.bytes,
+  });
+  if (
+    await fetchBatchOutcome({
+      rpcUrl,
+      programAddress,
+      batch: address(batch.address),
+    })
+  )
+    return;
+  await send([signed.ed25519Instruction, signed.settlementInstruction]);
+  const outcome = await fetchBatchOutcome({
+    rpcUrl,
+    programAddress,
+    batch: address(batch.address),
+  });
+  if (!outcome || outcome.receipt !== signed.receipt)
+    throw new Error('settlement confirmation uncertain');
+  proposals.delete(batch.address);
+}
+
+async function readMarketSettlementPolicy(marketAddress: string): Promise<{
+  feedId: bigint;
+  allowedSessionMask: number;
+  maximumAgeSeconds: number;
+}> {
+  const account = await readAccount(marketAddress);
+  if (
+    !account ||
+    account.programAddress !== programAddress ||
+    account.data.length !== 197
+  )
+    throw new Error('market policy unavailable');
+  const view = new DataView(
+    account.data.buffer,
+    account.data.byteOffset,
+    account.data.byteLength,
+  );
+  const feedId = view.getBigUint64(170, true);
+  const allowedSessionMask = account.data[178];
+  const maximumAgeSeconds = view.getUint32(179, true);
+  if (
+    view.getUint16(8, true) !== 1 ||
+    account.data[195] !== 1 ||
+    feedId.toString() !== required('BAZO_PYTH_FEED_ID') ||
+    allowedSessionMask === 0 ||
+    maximumAgeSeconds === 0
+  )
+    throw new Error('market policy mismatch');
+  return { feedId, allowedSessionMask, maximumAgeSeconds };
 }
 
 async function batchAvailability(batchAddress: string) {

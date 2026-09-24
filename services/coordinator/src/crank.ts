@@ -8,6 +8,7 @@ import {
   createSolanaRpc,
   getBase64EncodedWireTransaction,
   setTransactionMessageFeePayerSigner,
+  setTransactionMessageComputeUnitLimit,
   setTransactionMessageLifetimeUsingBlockhash,
   signTransactionMessageWithSigners,
   type Address,
@@ -43,6 +44,11 @@ type CrankInput = {
   requests: Map<string, StoredRequest>;
   readChainTime: () => Promise<bigint>;
   verifyRequest: (opening: BuyRequestOpeningV1) => Promise<string>;
+  settleLockedBatch: (
+    batch: PublicBatch,
+    caller: Address,
+    send: (instructions: Instruction | Instruction[]) => Promise<void>,
+  ) => Promise<void>;
 };
 
 export async function startCrank(input: CrankInput): Promise<void> {
@@ -70,35 +76,56 @@ export async function startCrank(input: CrankInput): Promise<void> {
   const duration = BigInt(policy.windowSeconds);
   let busy = false;
 
-  const send = async (instruction: Instruction): Promise<void> => {
+  const send = async (
+    instructions: Instruction | Instruction[],
+  ): Promise<void> => {
     const { value: blockhash } = await rpc
       .getLatestBlockhash({ commitment: 'confirmed' })
       .send();
-    const message = appendTransactionMessageInstructions(
-      [instruction],
-      setTransactionMessageLifetimeUsingBlockhash(
-        blockhash,
-        setTransactionMessageFeePayerSigner(
-          signer,
-          createTransactionMessage({ version: 0 }),
+    const message = setTransactionMessageComputeUnitLimit(
+      1_400_000,
+      appendTransactionMessageInstructions(
+        Array.isArray(instructions) ? instructions : [instructions],
+        setTransactionMessageLifetimeUsingBlockhash(
+          blockhash,
+          setTransactionMessageFeePayerSigner(
+            signer,
+            createTransactionMessage({ version: 1 }),
+          ),
         ),
       ),
     );
+    const wire = getBase64EncodedWireTransaction(compileTransaction(message));
+    if (Buffer.from(wire, 'base64').length > 4096)
+      throw new Error('transaction exceeds Solana packet limit');
     const simulation = await rpc
-      .simulateTransaction(
-        getBase64EncodedWireTransaction(compileTransaction(message)),
-        { encoding: 'base64', commitment: 'confirmed', sigVerify: false },
-      )
+      .simulateTransaction(wire, {
+        encoding: 'base64',
+        commitment: 'confirmed',
+        sigVerify: false,
+      })
       .send();
     if (simulation.value.err) throw new Error('batch simulation failed');
     const signed = await signTransactionMessageWithSigners(message);
-    await rpc
+    const signature = await rpc
       .sendTransaction(getBase64EncodedWireTransaction(signed), {
         encoding: 'base64',
         skipPreflight: false,
         preflightCommitment: 'confirmed',
       })
       .send();
+    for (let attempt = 0; attempt < 15; attempt++) {
+      const result = await rpc.getSignatureStatuses([signature]).send();
+      const status = result.value[0];
+      if (status?.err) throw new Error('transaction failed');
+      if (
+        status?.confirmationStatus === 'confirmed' ||
+        status?.confirmationStatus === 'finalized'
+      )
+        return;
+      await new Promise(resolve => setTimeout(resolve, 800));
+    }
+    throw new Error('transaction confirmation uncertain');
   };
 
   const readBatch = async (start: bigint): Promise<PublicBatch | null> => {
@@ -184,9 +211,11 @@ export async function startCrank(input: CrankInput): Promise<void> {
         offset++
       ) {
         const batch = await readBatch(start - offset * duration);
+        if (batch?.status === 'locked' && now < BigInt(batch.lockDeadline))
+          await input.settleLockedBatch(batch, signer.address, send);
         if (
           batch &&
-          batch.status !== 'expired' &&
+          (batch.status === 'open' || batch.status === 'locked') &&
           now >= BigInt(batch.lockDeadline)
         )
           await send(

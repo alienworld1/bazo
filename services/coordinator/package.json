@@ -5,17 +5,19 @@
   "scripts": {
     "dev": "node --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local --import tsx --watch src/index.ts",
     "start": "node --env-file-if-exists=../../.env --env-file-if-exists=../../.env.local --import tsx src/index.ts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bazo/sdk": "workspace:*",
     "@bazo/plan-crypto": "workspace:*",
-    "@solana/kit": "8.3.0",
-    "@solana-program/token-2022": "0.18.0"
+    "@bazo/sdk": "workspace:*",
+    "@solana-program/token-2022": "0.18.0",
+    "@solana/kit": "8.3.0"
   },
   "devDependencies": {
     "@types/node": "^20",
     "tsx": "^4.20.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "5.0.1"
   }
 }
