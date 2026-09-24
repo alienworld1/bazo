@@ -10,6 +10,7 @@ import { getEnvironment } from '@/server/env';
 import { getEnabledMarkets } from '@/server/market-registry';
 import { readSpendableQuoteBalance } from '@/server/holdings';
 import { readBatch, readCurrentOpenBatch } from '@/server/batches';
+import { RefreshSaleStatus } from '@/components/refresh-sale-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,13 +39,17 @@ export default async function BuyRequestPage({
   const title =
     request.status === 'canceled'
       ? 'Request canceled'
-      : request.status === 'expired'
-        ? 'Refund returned'
-        : expired
-          ? 'Refund available'
-          : request.lockedBatch
-            ? 'Locked'
-            : 'Request funded';
+      : request.status === 'filled'
+        ? 'Stock delivered'
+        : request.status === 'closed'
+          ? 'Stock delivered · quote returned'
+          : request.status === 'expired'
+            ? 'Refund returned'
+            : expired
+              ? 'Refund available'
+              : request.lockedBatch
+                ? 'Locked'
+                : 'Request funded';
   const facts = [
     ['Private terms', 'Sealed'],
     [
@@ -76,11 +81,15 @@ export default async function BuyRequestPage({
         <p className="font-mono text-xs text-text-tertiary">BUY REQUEST</p>
         <h1 className="mt-3 text-3xl font-medium text-text-primary">{title}</h1>
         <p className="mt-3 text-text-secondary">
-          {request.status === 'active' && !expired
-            ? 'Your quote funds are locked onchain. Matching needs your private details before this request can participate.'
-            : expired
-              ? 'This request has expired. Unused quote can be returned to your wallet.'
-              : 'This request cannot enter matching.'}
+          {request.status === 'filled'
+            ? 'Your stock was delivered to the recipient. Any unused quote is ready to return.'
+            : request.status === 'closed'
+              ? 'Your stock was delivered and unused quote was returned.'
+              : request.status === 'active' && !expired
+                ? 'Your quote funds are locked onchain. Matching needs your private details before this request can participate.'
+                : expired
+                  ? 'This request has expired. Unused quote can be returned to your wallet.'
+                  : 'This request cannot enter matching.'}
         </p>
         <dl className="mt-8 space-y-4 text-sm">
           {facts.map(([label, value]) => (
@@ -124,12 +133,16 @@ export default async function BuyRequestPage({
         <BuyRequestActions
           request={request}
           escrowRawAmount={request.escrowRawAmount}
-          marketId={market.id}
           programAddress={getEnvironment().BAZO_PROGRAM_ID}
           quoteMint={market.quoteMint}
           quoteTokenProgram={market.quoteTokenProgram}
+          quoteSymbol={market.quoteSymbol}
+          quoteDecimals={quoteBalance.decimals}
           expired={expired}
         />
+        <div className="mt-4">
+          <RefreshSaleStatus />
+        </div>
         <Link
           href={`/markets/${market.id}`}
           className="mt-6 inline-flex min-h-11 items-center border border-line-default px-4 text-sm text-text-primary"

@@ -11,25 +11,29 @@ import {
 import { solanaClient } from '@/components/solana-client';
 import type { PublicBuyRequest } from '@/lib/buy-request-projection';
 import { forgetBuyRequestOpening } from './private-buy-request-memory';
-import { simulateBuyRequest } from './simulate-buy-request';
+import { simulateWalletTransaction } from '@/components/simulate-wallet-transaction';
+import { ownerTokenDestination } from '@/components/owner-token-destination';
+import { formatDisplayAmount } from '@/lib/token-amounts';
 
 type Props = {
   request: PublicBuyRequest;
   escrowRawAmount: string;
-  marketId: string;
   programAddress: string;
   quoteMint: string;
   quoteTokenProgram: string;
+  quoteSymbol: string;
+  quoteDecimals: number;
   expired: boolean;
 };
 
 export function BuyRequestActions({
   request,
   escrowRawAmount,
-  marketId,
   programAddress,
   quoteMint,
   quoteTokenProgram,
+  quoteSymbol,
+  quoteDecimals,
   expired,
 }: Props) {
   const connected = useConnectedWallet(solanaClient);
@@ -39,7 +43,11 @@ export function BuyRequestActions({
   const [progress, setProgress] = useState<string>();
   const [error, setError] = useState<string>();
 
-  if (request.status !== 'active') return null;
+  if (
+    (request.status !== 'active' && request.status !== 'filled') ||
+    (request.status === 'filled' && escrowRawAmount === '0')
+  )
+    return null;
   if (!connected || connected.account.address !== request.buyer) {
     return (
       <p className="mt-8 text-sm text-text-secondary">
@@ -58,17 +66,12 @@ export function BuyRequestActions({
   const prepare = async (action: 'cancel' | 'refund') => {
     setError(undefined);
     try {
-      const response = await fetch(
-        `/api/markets/${marketId}/quote-balance?owner=${encodeURIComponent(request.buyer)}`,
-        { cache: 'no-store' },
-      );
-      if (!response.ok) throw new Error('quote account unavailable');
-      const balance = (await response.json()) as {
-        sourceTokenAccount: string | null;
-      };
-      if (!balance.sourceTokenAccount)
-        throw new Error('quote account unavailable');
-      setDestination(balance.sourceTokenAccount);
+      const prepared = await ownerTokenDestination({
+        owner: request.buyer,
+        mint: quoteMint,
+        tokenProgram: quoteTokenProgram,
+      });
+      setDestination(prepared.address);
       setReview(action);
     } catch {
       setError("We couldn't prepare the return account. Nothing moved.");
@@ -81,6 +84,13 @@ export function BuyRequestActions({
     setProgress('Preparing transaction…');
     setError(undefined);
     try {
+      const prepared = await ownerTokenDestination({
+        owner: request.buyer,
+        mint: quoteMint,
+        tokenProgram: quoteTokenProgram,
+      });
+      if (prepared.address !== destination)
+        throw new Error('destination changed');
       const input = {
         programAddress: address(programAddress),
         buyer: address(request.buyer),
@@ -95,12 +105,28 @@ export function BuyRequestActions({
         action === 'cancel'
           ? await cancelBuyRequestInstruction(input)
           : await refundBuyRequestInstruction(input);
-      const beforeDestination = await solanaClient.rpc
-        .getTokenAccountBalance(address(destination))
+      const destinationAccount = await solanaClient.rpc
+        .getAccountInfo(address(destination), {
+          encoding: 'base64',
+          commitment: 'confirmed',
+        })
         .send();
-      await simulateBuyRequest([instruction]);
+      const beforeAmount = destinationAccount.value
+        ? (
+            await solanaClient.rpc
+              .getTokenAccountBalance(address(destination))
+              .send()
+          ).value.amount
+        : '0';
+      await simulateWalletTransaction([
+        prepared.createInstruction,
+        instruction,
+      ]);
       setProgress('Awaiting approval…');
-      await solanaClient.sendTransaction([instruction]);
+      await solanaClient.sendTransaction([
+        prepared.createInstruction,
+        instruction,
+      ]);
       setProgress('Verifying return…');
       const [response, afterDestination] = await Promise.all([
         fetch(`/api/buy-requests/${request.address}`, { cache: 'no-store' }),
@@ -111,10 +137,14 @@ export function BuyRequestActions({
         escrowRawAmount: string;
       };
       if (
-        updated.status !== (action === 'cancel' ? 'canceled' : 'expired') ||
+        updated.status !==
+          (action === 'cancel'
+            ? 'canceled'
+            : request.status === 'filled'
+              ? 'closed'
+              : 'expired') ||
         updated.escrowRawAmount !== '0' ||
-        BigInt(afterDestination.value.amount) -
-          BigInt(beforeDestination.value.amount) !==
+        BigInt(afterDestination.value.amount) - BigInt(beforeAmount) !==
           BigInt(escrowRawAmount)
       )
         throw new Error('verification mismatch');
@@ -135,11 +165,16 @@ export function BuyRequestActions({
       {review && destination ? (
         <div className="border-y border-line-default py-5 text-sm">
           <h2 className="font-medium text-text-primary">
-            {review === 'cancel' ? 'Cancel request' : 'Claim refund'}
+            {review === 'cancel' ? 'Cancel request' : 'Refund unused quote'}
           </h2>
           <p className="mt-2 text-text-secondary">
-            Return {escrowRawAmount} raw quote units from this request&apos;s
+            Return {formatDisplayAmount(escrowRawAmount, quoteDecimals)}{' '}
+            {quoteSymbol} ({escrowRawAmount} raw units) from this request&apos;s
             escrow to your account.
+          </p>
+          <p className="mt-2 text-text-secondary">
+            Devnet · your wallet pays the network fee and may create its quote
+            account.
           </p>
           <p className="mt-2 break-all font-mono text-text-tertiary">
             Destination: {destination}
@@ -166,10 +201,16 @@ export function BuyRequestActions({
       ) : (
         <button
           type="button"
-          onClick={() => void prepare(expired ? 'refund' : 'cancel')}
+          onClick={() =>
+            void prepare(
+              expired || request.status === 'filled' ? 'refund' : 'cancel',
+            )
+          }
           className="min-h-11 border border-line-default px-4 text-sm text-text-primary"
         >
-          {expired ? 'Claim refund' : 'Cancel request'}
+          {expired || request.status === 'filled'
+            ? 'Refund unused quote'
+            : 'Cancel request'}
         </button>
       )}
       {progress ? (

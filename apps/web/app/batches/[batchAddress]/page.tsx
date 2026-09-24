@@ -6,6 +6,9 @@ import { readBatch, readBatchAvailability } from '@/server/batches';
 import { readChainUnixTimestamp } from '@/server/buy-requests';
 import { BatchActions } from '@/features/batches/batch-actions';
 import { getEnvironment } from '@/server/env';
+import { readSaleForBatch } from '@/server/settlements';
+import { SaleReceipt } from '@/features/sell-plans/sale-receipt';
+import { RefreshSaleStatus } from '@/components/refresh-sale-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,24 +20,30 @@ export default async function BatchPage({
   const { batchAddress } = await params;
   const batch = await readBatch(batchAddress);
   if (!batch) notFound();
-  const [chainTime, availability] = await Promise.all([
+  const [chainTime, availability, sale] = await Promise.all([
     readChainUnixTimestamp(),
     readBatchAvailability(batchAddress),
+    batch.status === 'settled'
+      ? readSaleForBatch(batchAddress)
+      : Promise.resolve(null),
   ]);
   const released = batch.status === 'expired';
   const releaseAvailable =
     batch.status === 'locked' && chainTime >= BigInt(batch.lockDeadline);
-  const status = released
-    ? 'This Batch ended without a sale.'
-    : releaseAvailable
-      ? 'Lock expired'
-      : batch.status === 'open'
-        ? 'Collecting requests'
-        : availability === 'match_ready'
-          ? 'Match ready'
-          : availability === 'candidate_pending_reference'
-            ? 'Waiting for valid market reference'
-            : 'Matching';
+  const status =
+    batch.status === 'settled' && sale
+      ? 'Stage sold'
+      : released
+        ? 'This Batch ended without a sale.'
+        : releaseAvailable
+          ? 'Lock expired'
+          : batch.status === 'open'
+            ? 'Collecting requests'
+            : availability === 'match_ready'
+              ? 'Match ready'
+              : availability === 'candidate_pending_reference'
+                ? 'Waiting for valid market reference'
+                : 'Matching';
   return (
     <AppShell>
       <article className="mx-auto max-w-3xl border-y border-line-default py-8">
@@ -46,17 +55,19 @@ export default async function BatchPage({
           className="mt-3 min-h-12 text-sm text-text-secondary"
           aria-live="polite"
         >
-          {released
-            ? 'Requests can be considered again while they remain active. No sale completed.'
-            : releaseAvailable
-              ? 'Release this Batch to make its active requests usable again. No sale completed.'
-              : batch.status === 'open'
-                ? 'Requests are being collected. The fixed set appears when this Batch locks.'
-                : availability === 'match_ready'
-                  ? 'A complete match proposal is available. Quote affordability still needs settlement verification. No sale has completed yet.'
-                  : availability === 'candidate_pending_reference'
-                    ? 'A structural match is waiting for verified market data. No sale has completed yet.'
-                    : 'The request set is fixed while matching is checked. No sale has completed yet.'}
+          {batch.status === 'settled' && sale
+            ? 'This sale is confirmed on Devnet. View the receipt for the reference, buyer fills, and quote paid.'
+            : released
+              ? 'Requests can be considered again while they remain active. No sale completed.'
+              : releaseAvailable
+                ? 'Release this Batch to make its active requests usable again. No sale completed.'
+                : batch.status === 'open'
+                  ? 'Requests are being collected. The fixed set appears when this Batch locks.'
+                  : availability === 'match_ready'
+                    ? 'A complete match proposal is available. Quote affordability still needs settlement verification. No sale has completed yet.'
+                    : availability === 'candidate_pending_reference'
+                      ? 'A structural match is waiting for verified market data. No sale has completed yet.'
+                      : 'The request set is fixed while matching is checked. No sale has completed yet.'}
         </p>
         <dl className="mt-8 space-y-4 text-sm">
           <PlanFact label="Market" value={batch.market} />
@@ -79,6 +90,10 @@ export default async function BatchPage({
             />
           ) : null}
         </dl>
+        {sale ? <SaleReceipt sale={sale} /> : null}
+        <div className="mt-4">
+          <RefreshSaleStatus />
+        </div>
         <BatchActions
           batch={batch}
           chainTime={chainTime.toString()}

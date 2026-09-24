@@ -9,7 +9,7 @@ import {
 } from '@solana/kit';
 import { solanaClient } from '@/components/solana-client';
 
-export async function simulateBuyRequest(
+export async function simulateWalletTransaction(
   instructions: readonly Instruction[],
 ): Promise<void> {
   const { value: blockhash } = await solanaClient.rpc

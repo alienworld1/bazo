@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { expireBatchInstruction, type PublicBatch } from '@bazo/sdk';
 import { solanaClient } from '@/components/solana-client';
-import { simulateBuyRequest } from '@/features/buy-requests/simulate-buy-request';
+import { simulateWalletTransaction } from '@/components/simulate-wallet-transaction';
 
 export function BatchActions({
   batch,
@@ -23,6 +23,7 @@ export function BatchActions({
   const [error, setError] = useState<string>();
   if (
     batch.status === 'expired' ||
+    batch.status === 'settled' ||
     BigInt(chainTime) < BigInt(batch.lockDeadline)
   )
     return null;
@@ -37,7 +38,7 @@ export function BatchActions({
         caller: address(connected.account.address),
         batch,
       });
-      await simulateBuyRequest([instruction]);
+      await simulateWalletTransaction([instruction]);
       setProgress('Awaiting approval…');
       await solanaClient.sendTransaction([instruction]);
       setProgress('Checking confirmation…');

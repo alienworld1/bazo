@@ -33,7 +33,7 @@ import { reconcileFundedBuyRequest } from './reconcile-buy-request';
 import { BuyRequestReview } from './buy-request-review';
 import { BuyRequestField as Field } from './buy-request-field';
 import type { PreparedBuyRequest } from './buy-request-types';
-import { simulateBuyRequest } from './simulate-buy-request';
+import { simulateWalletTransaction } from '@/components/simulate-wallet-transaction';
 
 type QuoteBalance = {
   rawAmount: string;
@@ -267,7 +267,7 @@ export function BuyRequestComposer({
         mint: address(market.stockMint),
         tokenProgram: address(market.stockTokenProgram),
       });
-      await simulateBuyRequest([createRecipient, funded.instruction]);
+      await simulateWalletTransaction([createRecipient, funded.instruction]);
       setPrepared({
         request: provisional.request,
         escrow: provisional.escrow,
@@ -398,7 +398,10 @@ export function BuyRequestComposer({
       });
       if (instruction.request !== prepared.request)
         throw new Error('stale review');
-      await simulateBuyRequest([createRecipient, instruction.instruction]);
+      await simulateWalletTransaction([
+        createRecipient,
+        instruction.instruction,
+      ]);
       if (
         prepared.expiresAt <=
         BigInt(Math.floor(Date.now() / 1000)) + MIN_SIGNING_WINDOW_SECONDS

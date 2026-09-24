@@ -7,6 +7,14 @@ import { CurrentStageDelivery } from '@/features/sell-plans/current-stage-delive
 import { PlanRecoveryPanel } from '@/features/sell-plans/recovery/plan-recovery-panel';
 import { readRelevantBatch } from '@/server/batches';
 import { readPublicSellPlan } from '@/server/plans';
+import { readSaleForPlan } from '@/server/settlements';
+import { getEnabledMarkets } from '@/server/market-registry';
+import { getEnvironment } from '@/server/env';
+import { ClaimPlanProceeds } from '@/features/sell-plans/claim-plan-proceeds';
+import { SaleReceipt } from '@/features/sell-plans/sale-receipt';
+import { RefreshSaleStatus } from '@/components/refresh-sale-status';
+import { WithdrawRemainingStock } from '@/features/sell-plans/withdraw-remaining-stock';
+import { readChainUnixTimestamp } from '@/server/buy-requests';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,21 +33,51 @@ export default async function SellPlanDetailPage({
   const { reconciliation, recovery, signature } = await searchParams;
   const plan = await readPublicSellPlan(planAddress);
   if (!plan) notFound();
-  const batch = await readRelevantBatch(plan.market);
+  const [batch, sale, chainNow] = await Promise.all([
+    plan.status === 'active'
+      ? readRelevantBatch(plan.market)
+      : Promise.resolve(null),
+    plan.currentStageIndex > 0
+      ? readSaleForPlan(plan.address, plan.currentStageIndex - 1)
+      : Promise.resolve(null),
+    readChainUnixTimestamp(),
+  ]);
+  const planIsActive =
+    plan.status === 'active' && chainNow < BigInt(plan.expiresAtUnix);
+  const stockIsWithdrawable =
+    BigInt(plan.remainingRawInventory) > 0n &&
+    (plan.status === 'complete' ||
+      plan.status === 'expired' ||
+      (plan.status === 'active' && !planIsActive));
+  const market = getEnabledMarkets().find(
+    item =>
+      item.stockMint === plan.stockVaultMint &&
+      item.quoteMint === plan.proceedsVaultMint,
+  );
+  const claimable =
+    BigInt(plan.accruedQuoteAmount) - BigInt(plan.claimedQuoteAmount);
 
   return (
     <AppShell>
       <article className="mx-auto max-w-3xl border-y border-line-default py-8">
         <p className="font-mono text-xs text-text-tertiary">SELL PLAN</p>
         <h1 className="mt-3 text-3xl font-medium text-text-primary">
-          {plan.status === 'active' && reconciliation !== 'mismatch'
-            ? 'Plan sealed'
-            : 'Sell Plan'}
+          {plan.status === 'complete'
+            ? 'Plan complete'
+            : !planIsActive
+              ? 'Plan ended'
+              : reconciliation !== 'mismatch'
+                ? 'Plan sealed'
+                : 'Sell Plan'}
         </h1>
         <p className="mt-3 text-text-secondary">
-          {plan.status === 'active' && reconciliation !== 'mismatch'
-            ? 'Your stock is funded and your future Stages are binding.'
-            : 'This Plan is available to inspect on Devnet.'}
+          {plan.status === 'complete'
+            ? 'Every committed Stage has finished. Your unclaimed proceeds remain available.'
+            : !planIsActive
+              ? 'Your Plan has ended. You can withdraw any remaining stock and claim your proceeds.'
+              : reconciliation !== 'mismatch'
+                ? 'Your stock is funded and your future Stages are binding.'
+                : 'This Plan is available to inspect on Devnet.'}
         </p>
         {reconciliation === 'mismatch' ? (
           <p className="mt-4 text-sm text-warning" role="alert">
@@ -59,10 +97,12 @@ export default async function SellPlanDetailPage({
           </div>
         ) : null}
         <dl className="mt-8 space-y-4 text-sm">
-          <PlanFact
-            label="Active Stage"
-            value={`Stage ${plan.currentStageIndex + 1}`}
-          />
+          {planIsActive ? (
+            <PlanFact
+              label="Active Stage"
+              value={`Stage ${plan.currentStageIndex + 1}`}
+            />
+          ) : null}
           <PlanFact
             label="Remaining"
             value={`${plan.remainingRawInventory} raw`}
@@ -71,41 +111,94 @@ export default async function SellPlanDetailPage({
             label="Total committed"
             value={`${plan.initialRawInventory} raw`}
           />
-          <PlanFact label="Future path" value="SEALED" />
+          {planIsActive ? (
+            <PlanFact label="Future path" value="SEALED" />
+          ) : null}
           <PlanFact label="Created" value={plan.createdAt} />
           <PlanFact label="Plan ends" value={plan.expiresAt} />
         </dl>
-        <OwnerStagePreview plan={plan.address} owner={plan.owner} />
-        <PlanRecoveryPanel plan={plan.address} owner={plan.owner} />
-        <CurrentStageDelivery
-          key={`${plan.currentStageIndex}:${plan.currentCommitment}`}
-          plan={plan.address}
-          owner={plan.owner}
-          stageIndex={plan.currentStageIndex}
-          commitment={plan.currentCommitment}
-        />
-        <section className="mt-8 border-t border-line-default pt-5">
-          <h2 className="text-lg font-medium text-text-primary">
-            Batch status
-          </h2>
-          <p className="mt-2 text-sm text-text-secondary">
-            {batch
-              ? batch.status === 'open'
-                ? 'Waiting for compatible demand.'
-                : batch.status === 'locked'
-                  ? 'Matching is being checked.'
-                  : 'This Batch ended without a sale. Your Stage remains sealed.'
-              : 'Waiting for compatible demand.'}
+        {sale ? (
+          <SaleReceipt sale={sale} />
+        ) : (
+          <p className="mt-8 text-sm text-text-secondary">
+            No sale has completed for this Stage.
           </p>
-          {batch ? (
-            <Link
-              href={`/batches/${batch.address}`}
-              className="mt-3 inline-flex min-h-11 items-center text-sm text-text-primary underline"
-            >
-              View Batch
-            </Link>
-          ) : null}
-        </section>
+        )}
+        <div className="mt-4">
+          <RefreshSaleStatus />
+        </div>
+        {market &&
+        claimable > 0n &&
+        claimable <= BigInt(plan.proceedsVaultRawAmount) ? (
+          <ClaimPlanProceeds
+            plan={plan.address}
+            owner={plan.owner}
+            market={plan.market}
+            marketId={market.id}
+            proceedsVault={plan.proceedsVault}
+            programAddress={getEnvironment().BAZO_PROGRAM_ID}
+            quoteMint={market.quoteMint}
+            quoteTokenProgram={market.quoteTokenProgram}
+            quoteSymbol={market.quoteSymbol}
+            quoteDecimals={plan.quoteDecimals}
+            claimableRawAmount={claimable.toString()}
+            claimedRawAmount={plan.claimedQuoteAmount}
+          />
+        ) : null}
+        {market && stockIsWithdrawable ? (
+          <WithdrawRemainingStock
+            programAddress={getEnvironment().BAZO_PROGRAM_ID}
+            plan={plan.address}
+            owner={plan.owner}
+            market={plan.market}
+            stockMint={market.stockMint}
+            stockTokenProgram={market.stockTokenProgram}
+            stockVault={plan.stockVault}
+            rawAmount={plan.remainingRawInventory}
+            stockSymbol={market.symbol}
+          />
+        ) : null}
+        {planIsActive ? (
+          <OwnerStagePreview plan={plan.address} owner={plan.owner} />
+        ) : null}
+        {planIsActive ? (
+          <PlanRecoveryPanel plan={plan.address} owner={plan.owner} />
+        ) : null}
+        {planIsActive ? (
+          <CurrentStageDelivery
+            key={`${plan.currentStageIndex}:${plan.currentCommitment}`}
+            plan={plan.address}
+            owner={plan.owner}
+            stageIndex={plan.currentStageIndex}
+            commitment={plan.currentCommitment}
+          />
+        ) : null}
+        {planIsActive ? (
+          <section className="mt-8 border-t border-line-default pt-5">
+            <h2 className="text-lg font-medium text-text-primary">
+              Batch status
+            </h2>
+            <p className="mt-2 text-sm text-text-secondary">
+              {batch
+                ? batch.status === 'open'
+                  ? 'Waiting for compatible demand.'
+                  : batch.status === 'locked'
+                    ? 'Matching is being checked.'
+                    : batch.status === 'settled'
+                      ? 'Stage sold.'
+                      : 'This Batch ended without a sale. Your Stage remains sealed.'
+                : 'Waiting for compatible demand.'}
+            </p>
+            {batch ? (
+              <Link
+                href={`/batches/${batch.address}`}
+                className="mt-3 inline-flex min-h-11 items-center text-sm text-text-primary underline"
+              >
+                View Batch
+              </Link>
+            ) : null}
+          </section>
+        ) : null}
         <details className="mt-8 border-t border-line-default pt-5 text-sm">
           <summary className="cursor-pointer text-text-primary">
             View technical details
