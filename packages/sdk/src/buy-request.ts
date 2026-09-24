@@ -18,7 +18,7 @@ export type PublicBuyRequest = {
   createdAt: string;
   createdSlot: string;
   requestNonce: string;
-  status: 'active' | 'canceled' | 'expired' | 'unknown';
+  status: 'active' | 'canceled' | 'expired' | 'filled' | 'closed' | 'unknown';
   lockedBatch: string | null;
   commitmentFingerprint: string;
   commitmentHex: string;
@@ -63,7 +63,11 @@ export function decodePublicBuyRequest(
           ? 'canceled'
           : data[statusOffset] === 3
             ? 'expired'
-            : 'unknown',
+            : data[statusOffset] === 4
+              ? 'filled'
+              : data[statusOffset] === 5
+                ? 'closed'
+                : 'unknown',
     lockedBatch: lockTag === 1 ? decoder.decode(data.slice(235, 267)) : null,
     commitmentFingerprint: `${hex(commitment.slice(0, 6))}…${hex(commitment.slice(-4))}`,
     commitmentHex: hex(commitment),

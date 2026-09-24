@@ -17,6 +17,8 @@ import {
 export * from './batch';
 export * from './matching';
 export * from './opening-transport';
+export * from './settlement-math';
+export * from './settlement';
 
 export {
   BUY_REQUEST_ACCOUNT_DATA_LENGTH,
@@ -75,6 +77,29 @@ export type PreparedSellPlanTransaction = Pick<
   'plan' | 'stockVault' | 'proceedsVault'
 > & {
   instruction: Instruction;
+};
+
+export type ClaimPlanProceedsInput = {
+  programAddress: Address;
+  owner: Address;
+  market: Address;
+  plan: Address;
+  quoteMint: Address;
+  quoteTokenProgram: Address;
+  proceedsVault: Address;
+  ownerQuoteDestination: Address;
+  rawAmount: bigint;
+};
+
+export type WithdrawRemainingStockInput = {
+  programAddress: Address;
+  owner: Address;
+  market: Address;
+  plan: Address;
+  stockMint: Address;
+  stockTokenProgram: Address;
+  stockVault: Address;
+  ownerStockDestination: Address;
 };
 
 export type DevnetStockClaimAddresses = {
@@ -420,6 +445,47 @@ export async function createSellPlanInstruction(
   input: CreateSellPlanInput,
 ): Promise<Instruction> {
   return (await prepareSellPlan(input)).instruction;
+}
+
+export async function claimPlanProceedsInstruction(
+  input: ClaimPlanProceedsInput,
+): Promise<Instruction> {
+  if (input.rawAmount <= 0n || input.rawAmount > 0xffff_ffff_ffff_ffffn)
+    throw new Error('invalid proceeds amount');
+  return {
+    programAddress: input.programAddress,
+    accounts: [
+      { address: input.owner, role: AccountRole.READONLY_SIGNER },
+      { address: input.plan, role: AccountRole.WRITABLE },
+      { address: input.market, role: AccountRole.READONLY },
+      { address: input.quoteMint, role: AccountRole.READONLY },
+      { address: input.quoteTokenProgram, role: AccountRole.READONLY },
+      { address: input.proceedsVault, role: AccountRole.WRITABLE },
+      { address: input.ownerQuoteDestination, role: AccountRole.WRITABLE },
+    ],
+    data: concatBytes(
+      await anchorDiscriminator('claim_plan_proceeds'),
+      u64(input.rawAmount),
+    ),
+  };
+}
+
+export async function withdrawRemainingStockInstruction(
+  input: WithdrawRemainingStockInput,
+): Promise<Instruction> {
+  return {
+    programAddress: input.programAddress,
+    accounts: [
+      { address: input.owner, role: AccountRole.READONLY_SIGNER },
+      { address: input.plan, role: AccountRole.WRITABLE },
+      { address: input.market, role: AccountRole.READONLY },
+      { address: input.stockMint, role: AccountRole.READONLY },
+      { address: input.stockTokenProgram, role: AccountRole.READONLY },
+      { address: input.stockVault, role: AccountRole.WRITABLE },
+      { address: input.ownerStockDestination, role: AccountRole.WRITABLE },
+    ],
+    data: await anchorDiscriminator('withdraw_remaining_stock'),
+  };
 }
 
 export async function prepareSellPlan(

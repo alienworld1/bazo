@@ -32,7 +32,7 @@ export type PublicBatch = {
   createdSlot: string;
   lockSlot: string | null;
   lockDeadline: string;
-  status: 'open' | 'locked' | 'expired';
+  status: 'open' | 'locked' | 'expired' | 'settled';
   requests: string[];
 };
 
@@ -160,7 +160,9 @@ export function decodePublicBatch(
         ? 'locked'
         : data[statusOffset] === 3
           ? 'expired'
-          : null;
+          : data[statusOffset] === 4
+            ? 'settled'
+            : null;
   const countOffset = statusOffset + 1;
   const count = view.getUint32(countOffset, true);
   if (
