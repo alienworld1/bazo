@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useConnectedWallet } from '@solana/kit-plugin-wallet/react';
 import type { PublicMarket } from '@/lib/markets';
 import type { SupportedHolding as SupportedHoldingData } from '@/lib/markets';
@@ -12,9 +12,11 @@ export function SupportedHolding({ market }: { market: PublicMarket }) {
   const [holding, setHolding] = useState<SupportedHoldingData>();
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
+  const requestId = useRef(0);
   const owner = connected?.account.address;
   const load = useCallback(async () => {
     if (!owner) return;
+    const currentRequest = ++requestId.current;
     setLoading(true);
     setError(false);
     try {
@@ -22,16 +24,20 @@ export function SupportedHolding({ market }: { market: PublicMarket }) {
         `/api/markets/${market.id}/holding?owner=${encodeURIComponent(owner)}`,
       );
       if (!response.ok) throw new Error('holding read failed');
-      setHolding(await response.json());
+      const result = await response.json();
+      if (currentRequest === requestId.current) setHolding(result);
     } catch {
-      setError(true);
+      if (currentRequest === requestId.current) setError(true);
     } finally {
-      setLoading(false);
+      if (currentRequest === requestId.current) setLoading(false);
     }
   }, [market.id, owner]);
 
   useEffect(() => {
     if (owner) void Promise.resolve().then(load);
+    return () => {
+      requestId.current += 1;
+    };
   }, [load, owner]);
 
   if (!connected)
