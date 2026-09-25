@@ -42,9 +42,9 @@ export function BatchActions({
       });
       await simulateWalletTransaction([instruction]);
       setProgress('Awaiting approval…');
-      await solanaClient.sendTransaction([instruction]);
       sent = true;
       setSubmitted(true);
+      await solanaClient.sendTransaction([instruction]);
       setProgress('Checking confirmation…');
       const response = await fetch(`/api/batches/${batch.address}`, {
         cache: 'no-store',
@@ -98,7 +98,7 @@ export function BatchActions({
       {submitted ? (
         <button
           type="button"
-          onClick={() => router.refresh()}
+          onClick={() => window.location.reload()}
           className="mt-3 min-h-11 text-sm text-text-primary underline"
         >
           Refresh status

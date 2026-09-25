@@ -43,6 +43,13 @@ export function BuyRequestActions({
   const [progress, setProgress] = useState<string>();
   const [error, setError] = useState<string>();
   const [submitted, setSubmitted] = useState(false);
+  const reviewContext = `${connected?.account.address ?? ''}:${escrowRawAmount}:${request.status}:${request.lockedBatch ?? ''}`;
+  const [previousReviewContext, setPreviousReviewContext] = useState(reviewContext);
+  if (previousReviewContext !== reviewContext) {
+    setPreviousReviewContext(reviewContext);
+    setReview(undefined);
+    setDestination(undefined);
+  }
 
   if (
     (request.status !== 'active' && request.status !== 'filled') ||
@@ -154,12 +161,12 @@ export function BuyRequestActions({
         instruction,
       ]);
       setProgress('Awaiting approval…');
+      sent = true;
+      setSubmitted(true);
       await solanaClient.sendTransaction([
         prepared.createInstruction,
         instruction,
       ]);
-      sent = true;
-      setSubmitted(true);
       setProgress('Verifying return…');
       const [response, afterDestination] = await Promise.all([
         fetch(`/api/buy-requests/${request.address}`, { cache: 'no-store' }),
@@ -262,7 +269,7 @@ export function BuyRequestActions({
       {submitted ? (
         <button
           type="button"
-          onClick={() => router.refresh()}
+          onClick={() => window.location.reload()}
           className="mt-3 min-h-11 text-sm text-text-primary underline"
         >
           Refresh status

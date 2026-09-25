@@ -32,6 +32,12 @@ export function WithdrawRemainingStock(props: Props) {
   const [progress, setProgress] = useState<string>();
   const [error, setError] = useState<string>();
   const [submitted, setSubmitted] = useState(false);
+  const reviewContext = `${connected?.account.address ?? ''}:${props.rawAmount}:${props.multiplier}`;
+  const [previousReviewContext, setPreviousReviewContext] = useState(reviewContext);
+  if (previousReviewContext !== reviewContext) {
+    setPreviousReviewContext(reviewContext);
+    setDestination(undefined);
+  }
   if (BigInt(props.rawAmount) === 0n) return null;
   if (!connected || connected.account.address !== props.owner)
     return (
@@ -122,12 +128,12 @@ export function WithdrawRemainingStock(props: Props) {
         : '0';
       await simulateWalletTransaction([target.createInstruction, instruction]);
       setProgress('Awaiting approval…');
+      sent = true;
+      setSubmitted(true);
       await solanaClient.sendTransaction([
         target.createInstruction,
         instruction,
       ]);
-      sent = true;
-      setSubmitted(true);
       setProgress('Checking confirmation…');
       const [response, balance] = await Promise.all([
         fetch(`/api/sell-plans/${props.plan}`, { cache: 'no-store' }),
@@ -222,7 +228,7 @@ export function WithdrawRemainingStock(props: Props) {
       {submitted ? (
         <button
           type="button"
-          onClick={() => router.refresh()}
+          onClick={() => window.location.reload()}
           className="mt-3 min-h-11 text-sm text-text-primary underline"
         >
           Refresh status

@@ -32,6 +32,12 @@ export function ClaimPlanProceeds(props: Props) {
   const [progress, setProgress] = useState<string>();
   const [error, setError] = useState<string>();
   const [submitted, setSubmitted] = useState(false);
+  const reviewContext = `${connected?.account.address ?? ''}:${props.claimableRawAmount}:${props.claimedRawAmount}`;
+  const [previousReviewContext, setPreviousReviewContext] = useState(reviewContext);
+  if (previousReviewContext !== reviewContext) {
+    setPreviousReviewContext(reviewContext);
+    setDestination(undefined);
+  }
   if (BigInt(props.claimableRawAmount) === 0n) return null;
   if (!connected || connected.account.address !== props.owner)
     return (
@@ -127,12 +133,12 @@ export function ClaimPlanProceeds(props: Props) {
         instruction,
       ]);
       setProgress('Awaiting approval…');
+      sent = true;
+      setSubmitted(true);
       await solanaClient.sendTransaction([
         prepared.createInstruction,
         instruction,
       ]);
-      sent = true;
-      setSubmitted(true);
       setProgress('Checking confirmation…');
       const [response, afterDestination] = await Promise.all([
         fetch(`/api/sell-plans/${props.plan}`, { cache: 'no-store' }),
@@ -223,7 +229,7 @@ export function ClaimPlanProceeds(props: Props) {
       {submitted ? (
         <button
           type="button"
-          onClick={() => router.refresh()}
+          onClick={() => window.location.reload()}
           className="mt-3 min-h-11 text-sm text-text-primary underline"
         >
           Refresh status

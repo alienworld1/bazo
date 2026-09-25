@@ -26,6 +26,12 @@ export function CancelSellPlan(props: Props) {
   const [error, setError] = useState<string>();
   const [submitted, setSubmitted] = useState(false);
   const isOwner = connected?.account.address === props.owner;
+  const reviewContext = `${connected?.account.address ?? ''}:${props.currentStageIndex}:${props.currentCommitment}:${props.remainingRawInventory}`;
+  const [previousReviewContext, setPreviousReviewContext] = useState(reviewContext);
+  if (previousReviewContext !== reviewContext) {
+    setPreviousReviewContext(reviewContext);
+    setReview(false);
+  }
 
   if (!isOwner)
     return (
@@ -76,9 +82,9 @@ export function CancelSellPlan(props: Props) {
       });
       await simulateWalletTransaction([instruction]);
       setProgress('Awaiting approval…');
-      await solanaClient.sendTransaction([instruction]);
       sent = true;
       setSubmitted(true);
+      await solanaClient.sendTransaction([instruction]);
       setProgress('Verifying updated Plan…');
       const verified = await fetch(`/api/sell-plans/${props.plan}`, {
         cache: 'no-store',
@@ -162,7 +168,7 @@ export function CancelSellPlan(props: Props) {
       {submitted ? (
         <button
           type="button"
-          onClick={() => router.refresh()}
+          onClick={() => window.location.reload()}
           className="mt-3 min-h-11 text-sm text-text-primary underline"
         >
           Refresh status
