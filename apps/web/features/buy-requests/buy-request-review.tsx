@@ -95,8 +95,10 @@ export function BuyRequestReview({
         the funds held for this request.
       </p>
       <p className="mt-3 text-sm text-text-secondary">
-        This request can enter one Batch. If it ends without a sale, you can
-        cancel the request to return unused quote after its lock is released.
+        Matching is limited to the Batch window when you create this request.
+        That window may end before the request expiry shown above. If there is
+        no sale, you can cancel to return unused quote once any Batch lock is
+        released.
       </p>
       {status ? (
         <p className="mt-4 text-sm text-text-secondary" aria-live="polite">
