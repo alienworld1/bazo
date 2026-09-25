@@ -1,12 +1,15 @@
 import { AccountRole, address } from '@solana/kit';
 import { describe, expect, it } from 'vitest';
 import {
+  cancelPlanInstruction,
   createDevnetStockClaimInstruction,
   deriveDevnetStockClaimAddresses,
   encodeBuyRequestOpening,
   hashBuyRequestOpening,
   prepareBuyRequest,
+  withdrawRemainingStockInstruction,
 } from './index';
+import { derivePlanReservationAddress } from './settlement';
 
 const programAddress = address('6e35GBMnuKLhWCJe3qmzWuJbN9L6XCTMPvAx5hgXLagb');
 const market = address('H83inusRWiShJZsVT3rTFXafo1wSCgb5HKTJEsM2LRgu');
@@ -22,6 +25,43 @@ const quoteMint = address('EDJpD3ngqiy5ZhWZjDNYZDzCuTvkW42ea72X6TAuDeL3');
 const buyerQuoteAccount = address(
   'ACFropKYtyPiD1amyb4Z4hrTDYUyWTMVFinpfvq9a3Qr',
 );
+
+describe('Sell Plan exits', () => {
+  it('passes the canonical current Stage reservation to cancellation and return', async () => {
+    const plan = recipient;
+    const reservation = await derivePlanReservationAddress(
+      programAddress,
+      plan,
+      2,
+    );
+    const cancellation = await cancelPlanInstruction({
+      programAddress,
+      owner: recipient,
+      market,
+      plan,
+      currentStageIndex: 2,
+    });
+    const stockReturn = await withdrawRemainingStockInstruction({
+      programAddress,
+      owner: recipient,
+      market,
+      plan,
+      stockMint,
+      stockTokenProgram,
+      stockVault: buyerQuoteAccount,
+      ownerStockDestination: recipientStockAccount,
+      currentStageIndex: 2,
+    });
+    expect(cancellation.accounts.at(-1)?.address).toBe(reservation);
+    expect(stockReturn.accounts.at(-1)?.address).toBe(reservation);
+    expect(cancellation.accounts[1]?.role).toBe(AccountRole.WRITABLE);
+    expect(stockReturn.accounts[1]?.role).toBe(AccountRole.WRITABLE);
+    expect(cancellation.data).toHaveLength(8);
+    await expect(
+      derivePlanReservationAddress(programAddress, plan, 65_536),
+    ).rejects.toThrow('invalid Stage index');
+  });
+});
 
 describe('Devnet stock claim instruction', () => {
   it('derives a market-bound faucet and one-claim receipt', async () => {

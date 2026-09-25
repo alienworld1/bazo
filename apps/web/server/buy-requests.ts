@@ -75,7 +75,7 @@ export async function readBuyRequest(
     if (
       remaining < 0n ||
       BigInt(request.refundableQuoteAmount) > remaining ||
-      (request.status === 'active'
+      (request.status === 'active' || request.status === 'filled'
         ? token.data.amount !== remaining
         : token.data.amount !== 0n)
     ) {

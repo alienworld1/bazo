@@ -11,12 +11,16 @@ export function PlanPosition({
   market: MarketConfig;
   multiplier: string;
 }) {
-  const sold =
-    BigInt(plan.initialRawInventory) - BigInt(plan.remainingRawInventory);
+  const sold = BigInt(plan.soldRawInventory);
+  const returned =
+    BigInt(plan.initialRawInventory) -
+    BigInt(plan.remainingRawInventory) -
+    sold;
   const claimable =
     BigInt(plan.accruedQuoteAmount) - BigInt(plan.claimedQuoteAmount);
   if (
     sold < 0n ||
+    returned < 0n ||
     claimable < 0n ||
     claimable > BigInt(plan.proceedsVaultRawAmount)
   )
@@ -62,6 +66,14 @@ export function PlanPosition({
           </dd>
         </div>
       </dl>
+      {returned > 0n ? (
+        <p className="mt-5 text-sm text-text-secondary">
+          Stock returned:{' '}
+          <span className="font-mono tabular-nums text-text-primary">
+            {stock(returned.toString())}
+          </span>
+        </p>
+      ) : null}
     </section>
   );
 }

@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { ownerTokenDestination } from '@/components/owner-token-destination';
 import { simulateWalletTransaction } from '@/components/simulate-wallet-transaction';
 import { solanaClient } from '@/components/solana-client';
+import { formatDisplayAmount } from '@/lib/token-amounts';
 
 type Props = {
   programAddress: string;
@@ -19,6 +20,9 @@ type Props = {
   stockVault: string;
   rawAmount: string;
   stockSymbol: string;
+  currentStageIndex: number;
+  stockDecimals: number;
+  multiplier: string;
 };
 
 export function WithdrawRemainingStock(props: Props) {
@@ -27,6 +31,7 @@ export function WithdrawRemainingStock(props: Props) {
   const [destination, setDestination] = useState<string>();
   const [progress, setProgress] = useState<string>();
   const [error, setError] = useState<string>();
+  const [submitted, setSubmitted] = useState(false);
   if (BigInt(props.rawAmount) === 0n) return null;
   if (!connected || connected.account.address !== props.owner)
     return (
@@ -52,10 +57,38 @@ export function WithdrawRemainingStock(props: Props) {
   };
 
   const submit = async () => {
-    if (!destination || progress) return;
+    if (
+      !destination ||
+      progress ||
+      submitted ||
+      connected?.account.address !== props.owner
+    )
+      return;
     setError(undefined);
     setProgress('Preparing transaction…');
+    let sent = false;
     try {
+      const latestResponse = await fetch(`/api/sell-plans/${props.plan}`, {
+        cache: 'no-store',
+      });
+      if (!latestResponse.ok) throw new Error('status unavailable');
+      const latest = (await latestResponse.json()) as {
+        owner: string;
+        market: string;
+        stockVault: string;
+        currentStageIndex: number;
+        remainingRawInventory: string;
+        reservation: unknown;
+      };
+      if (
+        latest.owner !== props.owner ||
+        latest.market !== props.market ||
+        latest.stockVault !== props.stockVault ||
+        latest.currentStageIndex !== props.currentStageIndex ||
+        latest.remainingRawInventory !== props.rawAmount ||
+        latest.reservation
+      )
+        throw new Error('available amount changed');
       const target = await ownerTokenDestination({
         owner: props.owner,
         mint: props.stockMint,
@@ -72,6 +105,7 @@ export function WithdrawRemainingStock(props: Props) {
         stockTokenProgram: address(props.stockTokenProgram),
         stockVault: address(props.stockVault),
         ownerStockDestination: address(destination),
+        currentStageIndex: props.currentStageIndex,
       });
       const existing = await solanaClient.rpc
         .getAccountInfo(address(destination), {
@@ -92,6 +126,8 @@ export function WithdrawRemainingStock(props: Props) {
         target.createInstruction,
         instruction,
       ]);
+      sent = true;
+      setSubmitted(true);
       setProgress('Checking confirmation…');
       const [response, balance] = await Promise.all([
         fetch(`/api/sell-plans/${props.plan}`, { cache: 'no-store' }),
@@ -115,7 +151,9 @@ export function WithdrawRemainingStock(props: Props) {
     } catch {
       setProgress(undefined);
       setError(
-        "We couldn't verify the return yet. Refresh this Plan before trying again.",
+        sent
+          ? "We're checking whether your transaction completed. Refresh this Plan before trying again."
+          : 'The available amount or destination may have changed. Refresh this Plan and review again.',
       );
     }
   };
@@ -127,7 +165,12 @@ export function WithdrawRemainingStock(props: Props) {
     >
       <h2 className="text-lg font-medium text-text-primary">Remaining stock</h2>
       <p className="mt-2 text-sm text-text-secondary">
-        {props.rawAmount} raw {props.stockSymbol} units are ready to return to
+        {formatDisplayAmount(
+          props.rawAmount,
+          props.stockDecimals,
+          props.multiplier,
+        )}{' '}
+        {props.stockSymbol} ({props.rawAmount} raw units) are ready to return to
         your wallet.
       </p>
       {destination ? (
@@ -143,7 +186,7 @@ export function WithdrawRemainingStock(props: Props) {
             <button
               type="button"
               onClick={() => void submit()}
-              disabled={Boolean(progress)}
+              disabled={Boolean(progress) || submitted}
               className="min-h-11 border border-line-strong bg-surface-3 px-4 text-text-primary disabled:text-text-disabled"
             >
               Approve return
@@ -162,7 +205,8 @@ export function WithdrawRemainingStock(props: Props) {
         <button
           type="button"
           onClick={() => void prepare()}
-          className="mt-4 min-h-11 border border-line-default px-4 text-sm text-text-primary"
+          disabled={submitted}
+          className="mt-4 min-h-11 border border-line-default px-4 text-sm text-text-primary disabled:text-text-disabled"
         >
           Withdraw remaining stock
         </button>
@@ -174,6 +218,15 @@ export function WithdrawRemainingStock(props: Props) {
         <p className="mt-3 text-sm text-warning" role="alert">
           {error}
         </p>
+      ) : null}
+      {submitted ? (
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="mt-3 min-h-11 text-sm text-text-primary underline"
+        >
+          Refresh status
+        </button>
       ) : null}
     </section>
   );

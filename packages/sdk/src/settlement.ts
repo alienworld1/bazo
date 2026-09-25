@@ -143,6 +143,8 @@ export async function derivePlanReservationAddress(
   plan: Address,
   stageIndex: number,
 ): Promise<Address> {
+  if (!Number.isInteger(stageIndex) || stageIndex < 0 || stageIndex > 0xffff)
+    throw new Error('invalid Stage index');
   return derive(programAddress, [
     encoder.encode('plan-reservation'),
     new Uint8Array(encodeAddress.encode(plan)),

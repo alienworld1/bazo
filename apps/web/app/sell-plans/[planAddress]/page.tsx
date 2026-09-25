@@ -17,6 +17,9 @@ import { RefreshSaleStatus } from '@/components/refresh-sale-status';
 import { WithdrawRemainingStock } from '@/features/sell-plans/withdraw-remaining-stock';
 import { readChainUnixTimestamp } from '@/server/buy-requests';
 import { readStockMultiplier } from '@/server/holdings';
+import { CancelSellPlan } from '@/features/sell-plans/cancel-sell-plan';
+import { ReleaseStageReservation } from '@/features/sell-plans/release-stage-reservation';
+import { ShareDisplayUpdate } from '@/features/sell-plans/share-display-update';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +49,9 @@ export default async function SellPlanDetailPage({
     plan.status === 'active' && chainNow < BigInt(plan.expiresAtUnix);
   const stockIsWithdrawable =
     BigInt(plan.remainingRawInventory) > 0n &&
+    !plan.reservation &&
     (plan.status === 'complete' ||
+      plan.status === 'canceled' ||
       plan.status === 'expired' ||
       (plan.status === 'active' && !planIsActive));
   const market = getEnabledMarkets().find(
@@ -65,11 +70,13 @@ export default async function SellPlanDetailPage({
         <h1 className="mt-3 text-3xl font-medium text-text-primary">
           {plan.status === 'complete'
             ? 'Plan complete'
-            : !planIsActive
-              ? 'Plan ended'
-              : reconciliation !== 'mismatch'
-                ? 'Plan sealed'
-                : 'Sell Plan'}
+            : plan.status === 'canceled'
+              ? 'Plan canceled'
+              : !planIsActive
+                ? 'Plan ended'
+                : reconciliation !== 'mismatch'
+                  ? 'Plan sealed'
+                  : 'Sell Plan'}
         </h1>
         <p className="mt-3 text-text-secondary">
           {plan.status === 'complete'
@@ -98,7 +105,13 @@ export default async function SellPlanDetailPage({
           </div>
         ) : null}
         {market ? (
-          <PlanPosition plan={plan} market={market} multiplier={multiplier} />
+          <>
+            <PlanPosition plan={plan} market={market} multiplier={multiplier} />
+            <ShareDisplayUpdate
+              mint={market.stockMint}
+              multiplier={multiplier}
+            />
+          </>
         ) : (
           <p role="alert" className="mt-8 text-warning">
             We couldn&apos;t verify this Market right now.
@@ -117,6 +130,45 @@ export default async function SellPlanDetailPage({
         <div className="mt-4">
           <RefreshSaleStatus />
         </div>
+        {plan.reservation ? (
+          <section className="mt-8 border-t border-line-default pt-5">
+            <h2 className="text-lg font-medium text-text-primary">
+              Stage reserved for matching
+            </h2>
+            <p className="mt-2 text-sm text-text-secondary">
+              Cancellation and stock return become available after this
+              reservation is released. The lock deadline is{' '}
+              {new Date(
+                Number(plan.reservation.lockDeadline) * 1_000,
+              ).toLocaleString()}
+              .
+            </p>
+            <Link
+              href={`/batches/${plan.reservation.batch}`}
+              className="mt-2 inline-flex min-h-11 items-center text-sm text-text-primary underline"
+            >
+              View Batch
+            </Link>
+            {chainNow >= BigInt(plan.reservation.lockDeadline) ? (
+              <ReleaseStageReservation
+                programAddress={getEnvironment().BAZO_PROGRAM_ID}
+                plan={plan.address}
+                stageIndex={plan.currentStageIndex}
+              />
+            ) : null}
+          </section>
+        ) : null}
+        {plan.status === 'active' && !plan.reservation ? (
+          <CancelSellPlan
+            programAddress={getEnvironment().BAZO_PROGRAM_ID}
+            plan={plan.address}
+            owner={plan.owner}
+            market={plan.market}
+            currentStageIndex={plan.currentStageIndex}
+            currentCommitment={plan.currentCommitment}
+            remainingRawInventory={plan.remainingRawInventory}
+          />
+        ) : null}
         {market &&
         claimable > 0n &&
         claimable <= BigInt(plan.proceedsVaultRawAmount) ? (
@@ -146,6 +198,9 @@ export default async function SellPlanDetailPage({
             stockVault={plan.stockVault}
             rawAmount={plan.remainingRawInventory}
             stockSymbol={market.symbol}
+            currentStageIndex={plan.currentStageIndex}
+            stockDecimals={market.tokenDecimals}
+            multiplier={multiplier}
           />
         ) : null}
         {planIsActive ? (

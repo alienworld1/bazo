@@ -14,6 +14,7 @@ import {
   decodePublicBuyRequest,
   type PublicBuyRequest,
 } from './buy-request';
+import { derivePlanReservationAddress } from './settlement';
 export * from './batch';
 export * from './matching';
 export * from './opening-transport';
@@ -100,7 +101,38 @@ export type WithdrawRemainingStockInput = {
   stockTokenProgram: Address;
   stockVault: Address;
   ownerStockDestination: Address;
+  currentStageIndex: number;
 };
+
+export type CancelPlanInput = {
+  programAddress: Address;
+  owner: Address;
+  market: Address;
+  plan: Address;
+  currentStageIndex: number;
+};
+
+export async function cancelPlanInstruction(
+  input: CancelPlanInput,
+): Promise<Instruction> {
+  return {
+    programAddress: input.programAddress,
+    accounts: [
+      { address: input.owner, role: AccountRole.READONLY_SIGNER },
+      { address: input.plan, role: AccountRole.WRITABLE },
+      { address: input.market, role: AccountRole.READONLY },
+      {
+        address: await derivePlanReservationAddress(
+          input.programAddress,
+          input.plan,
+          input.currentStageIndex,
+        ),
+        role: AccountRole.READONLY,
+      },
+    ],
+    data: await anchorDiscriminator('cancel_plan'),
+  };
+}
 
 export type DevnetStockClaimAddresses = {
   faucetAuthority: Address;
@@ -483,6 +515,14 @@ export async function withdrawRemainingStockInstruction(
       { address: input.stockTokenProgram, role: AccountRole.READONLY },
       { address: input.stockVault, role: AccountRole.WRITABLE },
       { address: input.ownerStockDestination, role: AccountRole.WRITABLE },
+      {
+        address: await derivePlanReservationAddress(
+          input.programAddress,
+          input.plan,
+          input.currentStageIndex,
+        ),
+        role: AccountRole.READONLY,
+      },
     ],
     data: await anchorDiscriminator('withdraw_remaining_stock'),
   };

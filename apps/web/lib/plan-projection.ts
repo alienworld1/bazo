@@ -12,7 +12,9 @@ export type PublicSellPlan = {
   proceedsVault: string;
   initialRawInventory: string;
   remainingRawInventory: string;
-  status: 'active' | 'expired' | 'complete' | 'unknown';
+  soldRawInventory: string;
+  status: 'active' | 'canceled' | 'expired' | 'complete' | 'unknown';
+  planNonce: string;
   currentStageIndex: number;
   currentCommitment: string;
   currentCommitmentFingerprint: string;
@@ -45,15 +47,19 @@ export function decodePublicSellPlan(
     proceedsVault: base58Decoder.decode(data.slice(106, 138)),
     initialRawInventory: view.getBigUint64(138, true).toString(),
     remainingRawInventory: view.getBigUint64(146, true).toString(),
+    soldRawInventory: view.getBigUint64(154, true).toString(),
     status:
       data[212] === 1
         ? 'active'
+        : data[212] === 2
+          ? 'canceled'
         : data[212] === 3
           ? 'expired'
           : data[212] === 4
             ? 'complete'
             : 'unknown',
     currentStageIndex: view.getUint16(178, true),
+    planNonce: view.getBigUint64(229, true).toString(),
     currentCommitment: toHex(commitment),
     currentCommitmentFingerprint: `${toHex(commitment.slice(0, 6))}…${toHex(commitment.slice(-4))}`,
     accruedQuoteAmount: view.getBigUint64(162, true).toString(),

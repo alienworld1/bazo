@@ -516,11 +516,32 @@ pub mod bazo {
         Ok(())
     }
 
+    pub fn cancel_plan(ctx: Context<CancelPlan>) -> Result<()> {
+        require!(ctx.accounts.plan.status == STATUS_ACTIVE, BazoError::ExpiredPlan);
+        require!(
+            ctx.accounts.reservation.data_is_empty(),
+            BazoError::PlanReserved
+        );
+        let plan = &mut ctx.accounts.plan;
+        plan.status = STATUS_CANCELED;
+        plan.current_stage_commitment = terminal_commitment(plan.key(), plan.market);
+        emit!(PlanCanceled {
+            plan: plan.key(),
+            owner: plan.owner,
+        });
+        Ok(())
+    }
+
     pub fn withdraw_remaining_stock(ctx: Context<WithdrawRemainingStock>) -> Result<()> {
+        require!(
+            ctx.accounts.reservation.data_is_empty(),
+            BazoError::PlanReserved
+        );
         let plan = &mut ctx.accounts.plan;
         let now = Clock::get()?.unix_timestamp;
         require!(
             plan.status == PLAN_COMPLETE
+                || plan.status == STATUS_CANCELED
                 || (plan.status == STATUS_ACTIVE && now >= plan.expires_at),
             BazoError::StockNotWithdrawable
         );
@@ -738,7 +759,8 @@ pub mod bazo {
                 BazoError::BuyRequestNotActive
             );
             require!(
-                request.created_at < batch.window_end && request.expires_at > batch.lock_deadline,
+                request_is_in_first_batch(request.created_at, batch.window_start, batch.window_end)
+                    && request.expires_at > batch.lock_deadline,
                 BazoError::ExpiredBuyRequest
             );
             require!(request.locked_batch.is_none(), BazoError::BuyRequestLocked);
@@ -803,6 +825,10 @@ pub mod bazo {
         emit!(BatchExpired { batch: batch.key() });
         Ok(())
     }
+}
+
+fn request_is_in_first_batch(created_at: i64, window_start: i64, window_end: i64) -> bool {
+    created_at >= window_start && created_at < window_end
 }
 
 #[derive(Accounts)]
@@ -1113,7 +1139,7 @@ pub struct CreateBuyRequest<'info> {
 pub struct CancelBuyRequest<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
-    #[account(mut, has_one = buyer @ BazoError::Unauthorized, has_one = market @ BazoError::MarketMismatch, has_one = escrow @ BazoError::MarketMismatch)]
+    #[account(mut, has_one = buyer @ BazoError::Unauthorized, has_one = market @ BazoError::MarketMismatch, has_one = escrow @ BazoError::MarketMismatch, seeds = [BUY_REQUEST_SEED, &BUY_REQUEST_VERSION.to_le_bytes(), buyer.key().as_ref(), &request.request_nonce.to_le_bytes()], bump = request.bump)]
     pub request: Account<'info, BuyRequest>,
     #[account(has_one = quote_mint @ BazoError::MarketMismatch)]
     pub market: Account<'info, Market>,
@@ -1121,7 +1147,7 @@ pub struct CancelBuyRequest<'info> {
     pub quote_mint: InterfaceAccount<'info, Mint>,
     #[account(address = market.quote_token_program @ BazoError::MarketMismatch)]
     pub quote_token_program: Interface<'info, TokenInterface>,
-    #[account(mut, constraint = escrow.mint == quote_mint.key() @ BazoError::MarketMismatch, constraint = escrow.owner == request.key() @ BazoError::MarketMismatch)]
+    #[account(mut, constraint = escrow.mint == quote_mint.key() @ BazoError::MarketMismatch, constraint = escrow.owner == request.key() @ BazoError::MarketMismatch, constraint = escrow.to_account_info().owner == &quote_token_program.key() @ BazoError::MarketMismatch)]
     pub escrow: InterfaceAccount<'info, TokenAccount>,
     #[account(mut, constraint = buyer_quote_destination.owner == buyer.key() @ BazoError::InvalidQuoteDestination, constraint = buyer_quote_destination.mint == quote_mint.key() @ BazoError::InvalidQuoteDestination, constraint = buyer_quote_destination.to_account_info().owner == &quote_token_program.key() @ BazoError::InvalidQuoteDestination)]
     pub buyer_quote_destination: InterfaceAccount<'info, TokenAccount>,
@@ -1162,6 +1188,23 @@ pub struct ClaimPlanProceeds<'info> {
 }
 
 #[derive(Accounts)]
+pub struct CancelPlan<'info> {
+    pub owner: Signer<'info>,
+    #[account(
+        mut,
+        has_one = owner @ BazoError::Unauthorized,
+        has_one = market @ BazoError::MarketMismatch,
+        seeds = [PLAN_SEED, &PLAN_VERSION.to_le_bytes(), owner.key().as_ref(), &plan.plan_nonce.to_le_bytes()],
+        bump = plan.bump,
+    )]
+    pub plan: Account<'info, Plan>,
+    pub market: Account<'info, Market>,
+    /// CHECK: The canonical current-stage PDA is checked by its seeds; an occupied account blocks cancellation.
+    #[account(seeds = [PLAN_RESERVATION_SEED, plan.key().as_ref(), &plan.current_stage_index.to_le_bytes()], bump)]
+    pub reservation: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
 pub struct WithdrawRemainingStock<'info> {
     pub owner: Signer<'info>,
     #[account(
@@ -1193,6 +1236,9 @@ pub struct WithdrawRemainingStock<'info> {
         constraint = owner_stock_destination.to_account_info().owner == &stock_token_program.key() @ BazoError::InvalidStockRecipient,
     )]
     pub owner_stock_destination: InterfaceAccount<'info, TokenAccount>,
+    /// CHECK: The canonical current-stage PDA is checked by its seeds; an occupied account blocks withdrawal.
+    #[account(seeds = [PLAN_RESERVATION_SEED, plan.key().as_ref(), &plan.current_stage_index.to_le_bytes()], bump)]
+    pub reservation: UncheckedAccount<'info>,
 }
 
 #[account]
@@ -1393,6 +1439,11 @@ pub struct PlanProceedsClaimed {
     pub raw_quote_amount: u64,
 }
 #[event]
+pub struct PlanCanceled {
+    pub plan: Pubkey,
+    pub owner: Pubkey,
+}
+#[event]
 pub struct RemainingStockWithdrawn {
     pub plan: Pubkey,
     pub owner: Pubkey,
@@ -1491,6 +1542,8 @@ pub enum BazoError {
     ProceedsAccountingMismatch,
     #[msg("The remaining stock is still committed to an active Stage.")]
     StockNotWithdrawable,
+    #[msg("The current Stage reservation must be released before this exit.")]
+    PlanReserved,
     #[msg("The Batch window is invalid.")]
     InvalidBatchWindow,
     #[msg("The Batch request set is invalid.")]
@@ -1743,6 +1796,14 @@ pub fn allocate_stage(
 mod tests {
     use super::*;
     use core::str::FromStr;
+
+    #[test]
+    fn request_can_only_enter_its_creation_window() {
+        assert!(request_is_in_first_batch(100, 100, 145));
+        assert!(request_is_in_first_batch(144, 100, 145));
+        assert!(!request_is_in_first_batch(99, 100, 145));
+        assert!(!request_is_in_first_batch(145, 100, 145));
+    }
 
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|byte| format!("{byte:02x}")).collect()

@@ -159,6 +159,7 @@ export async function startCrank(input: CrankInput): Promise<void> {
         });
         if (
           !request ||
+          BigInt(request.createdAt) < BigInt(batch.windowStart) ||
           BigInt(request.createdAt) >= BigInt(batch.windowEnd) ||
           BigInt(request.expiresAt) <= BigInt(batch.lockDeadline)
         )
