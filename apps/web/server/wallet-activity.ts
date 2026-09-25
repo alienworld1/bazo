@@ -71,24 +71,33 @@ export async function readWalletActivity(owner: string) {
     ...positions.plans.map(plan => ({
       address: plan.address,
       kind: 'plan' as const,
+      createdAt: plan.createdAtUnix,
     })),
     ...positions.requests.map(request => ({
       address: request.address,
       kind: 'request' as const,
+      createdAt: request.createdAt,
     })),
-  ];
+  ].sort((left, right) => {
+    const leftTime = BigInt(left.createdAt);
+    const rightTime = BigInt(right.createdAt);
+    return leftTime === rightTime ? 0 : leftTime > rightTime ? -1 : 1;
+  });
   if (subjects.length > 8) partial = true;
-  for (const subject of subjects.slice(0, 8)) {
-    try {
-      const recovery = await readRecoveryActivity(
-        subject.address,
-        owner,
-        subject.kind,
-      );
-      items.push(...recovery.items);
-      if (recovery.partial) partial = true;
-    } catch {
-      partial = true;
+  const recentSubjects = subjects.slice(0, 8);
+  for (let index = 0; index < recentSubjects.length; index += 3) {
+    const results = await Promise.allSettled(
+      recentSubjects.slice(index, index + 3).map(subject =>
+        readRecoveryActivity(subject.address, owner, subject.kind),
+      ),
+    );
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        partial = true;
+        continue;
+      }
+      items.push(...result.value.items);
+      if (result.value.partial) partial = true;
     }
   }
   items.sort((left, right) => {

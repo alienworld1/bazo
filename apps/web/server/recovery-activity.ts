@@ -146,13 +146,17 @@ export async function readRecoveryActivity(
                 .getBigUint64(72, true)
                 .toString()
             : null;
+        const asset =
+          definition.name === 'RemainingStockWithdrawn' ? 'stock' : 'quote';
+        const action =
+          definition.name === 'PlanProceedsClaimed' ? 'claimed' : 'returned';
         items.push({
           id: `${definition.name}:${candidate.signature}`,
           title: definition.title,
           detail:
             raw === null
               ? 'The remaining path ended; completed sales remain final.'
-              : `${raw} raw ${definition.name === 'RemainingStockWithdrawn' ? 'stock' : 'quote'} units returned or claimed`,
+              : `${raw} raw ${asset} units ${action}`,
           href: `/${kind === 'plan' ? 'sell-plans' : 'buy-requests'}/${subject}`,
           occurredAtUnix: transaction.blockTime?.toString() ?? null,
           signature: candidate.signature,
