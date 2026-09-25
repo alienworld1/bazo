@@ -19,6 +19,9 @@ if (privateBlobDirectory && !privateBlobDirectory.startsWith('/')) {
 
 const nextConfig: NextConfig = {
   transpilePackages: ['@bazo/plan-crypto'],
+  outputFileTracingExcludes: {
+    '/*': ['./.next/export-detail.json'],
+  },
 };
 
 export default nextConfig;
