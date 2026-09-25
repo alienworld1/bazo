@@ -2,6 +2,7 @@ import 'server-only';
 
 import { readSalesForPlan } from './settlements';
 import { readWalletPositions } from './wallet-positions';
+import { readRecoveryActivity } from './recovery-activity';
 
 export type WalletActivity = {
   id: string;
@@ -66,6 +67,30 @@ export async function readWalletActivity(owner: string) {
       });
     }
   });
+  const subjects = [
+    ...positions.plans.map(plan => ({
+      address: plan.address,
+      kind: 'plan' as const,
+    })),
+    ...positions.requests.map(request => ({
+      address: request.address,
+      kind: 'request' as const,
+    })),
+  ];
+  if (subjects.length > 8) partial = true;
+  for (const subject of subjects.slice(0, 8)) {
+    try {
+      const recovery = await readRecoveryActivity(
+        subject.address,
+        owner,
+        subject.kind,
+      );
+      items.push(...recovery.items);
+      if (recovery.partial) partial = true;
+    } catch {
+      partial = true;
+    }
+  }
   items.sort((left, right) => {
     const first = BigInt(left.occurredAtUnix ?? '0');
     const second = BigInt(right.occurredAtUnix ?? '0');

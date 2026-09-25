@@ -66,9 +66,7 @@ export function WalletPositions({ markets }: { markets: PublicMarket[] }) {
                   item.quoteMint === plan.proceedsVaultMint,
               );
               if (!market) return null;
-              const sold =
-                BigInt(plan.initialRawInventory) -
-                BigInt(plan.remainingRawInventory);
+              const sold = BigInt(plan.soldRawInventory);
               const claimable =
                 BigInt(plan.accruedQuoteAmount) -
                 BigInt(plan.claimedQuoteAmount);

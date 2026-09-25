@@ -104,7 +104,9 @@ export async function readStockMultiplier(market: MarketConfig): Promise<string>
   if (extensions.some(extension => !market.supportedStockExtensions.includes(extension.__kind)))
     throw new Error('unsupported_mint_extension');
   const scaled = extensions.find(extension => extension.__kind === 'ScaledUiAmountConfig');
-  return scaled?.__kind === 'ScaledUiAmountConfig' ? String(scaled.multiplier) : '1';
+  const multiplier = scaled?.__kind === 'ScaledUiAmountConfig' ? String(scaled.multiplier) : '1';
+  if (!/^\d+(?:\.\d+)?$/.test(multiplier) || Number(multiplier) <= 0) throw new Error('unsupported_stock_multiplier');
+  return multiplier;
 }
 
 export async function readSpendableQuoteBalance(

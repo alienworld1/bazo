@@ -7,7 +7,13 @@ import { solanaClient } from '@/components/solana-client';
 import { deliverBuyRequestOpening } from './deliver-buy-request-opening';
 import { getVerifiedBuyRequestOpening } from './private-buy-request-memory';
 
-export function BuyRequestDelivery({ request }: { request: PublicBuyRequest }) {
+export function BuyRequestDelivery({
+  request,
+  matchingWindowOpen,
+}: {
+  request: PublicBuyRequest;
+  matchingWindowOpen: boolean;
+}) {
   const connected = useConnectedWallet(solanaClient);
   const [status, setStatus] = useState<
     'checking' | 'needed' | 'delivered' | 'sending'
@@ -16,7 +22,13 @@ export function BuyRequestDelivery({ request }: { request: PublicBuyRequest }) {
   const isOwner = connected?.account.address === request.buyer;
 
   useEffect(() => {
-    if (!isOwner || request.lockedBatch || request.status !== 'active') return;
+    if (
+      !isOwner ||
+      !matchingWindowOpen ||
+      request.lockedBatch ||
+      request.status !== 'active'
+    )
+      return;
     let alive = true;
     fetch(`/api/buy-requests/${request.address}/opening`, { cache: 'no-store' })
       .then(response =>
@@ -33,9 +45,16 @@ export function BuyRequestDelivery({ request }: { request: PublicBuyRequest }) {
     return () => {
       alive = false;
     };
-  }, [isOwner, request.address, request.lockedBatch, request.status]);
+  }, [
+    isOwner,
+    matchingWindowOpen,
+    request.address,
+    request.lockedBatch,
+    request.status,
+  ]);
 
-  if (request.status !== 'active' || request.lockedBatch) return null;
+  if (request.status !== 'active' || request.lockedBatch || !matchingWindowOpen)
+    return null;
   if (!isOwner)
     return (
       <p className="mt-8 border-t border-line-default pt-5 text-sm text-text-secondary">

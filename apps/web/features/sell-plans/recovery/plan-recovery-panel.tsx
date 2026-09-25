@@ -69,9 +69,11 @@ export function PlanRecoveryPanel({
       </div>
       {!recovery.privatePackage && recovery.status === 'idle' ? (
         <p className="mt-4 text-sm text-text-secondary">
-          Private Plan details aren’t available here yet.{' '}
+          We can&apos;t continue this sealed Plan without its private details.
+          Restore your backup, or cancel the remaining Plan when matching is no
+          longer locked. Your stock and proceeds remain under the onchain Plan.{' '}
           <Link href="/settings/security" className="underline">
-            Restore an encrypted backup to continue this sealed path.
+            Restore backup
           </Link>
         </p>
       ) : null}

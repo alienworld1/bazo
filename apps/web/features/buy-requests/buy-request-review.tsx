@@ -94,6 +94,10 @@ export function BuyRequestReview({
         {market.quoteSymbol}. Your final price is limited by your premium and
         the funds held for this request.
       </p>
+      <p className="mt-3 text-sm text-text-secondary">
+        This request can enter one Batch. If it ends without a sale, you can
+        cancel the request to return unused quote after its lock is released.
+      </p>
       {status ? (
         <p className="mt-4 text-sm text-text-secondary" aria-live="polite">
           {status}

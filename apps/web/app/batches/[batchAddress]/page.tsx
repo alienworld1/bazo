@@ -58,9 +58,9 @@ export default async function BatchPage({
           {batch.status === 'settled' && sale
             ? 'This sale is confirmed on Devnet. View the receipt for the reference, buyer fills, and quote paid.'
             : released
-              ? 'Requests can be considered again while they remain active. No sale completed.'
+              ? 'This Batch ended without a sale. Owners can recover unused quote from unlocked requests.'
               : releaseAvailable
-                ? 'Release this Batch to make its active requests usable again. No sale completed.'
+                ? 'Release this Batch so owners can recover unused quote from their requests. No sale completed.'
                 : batch.status === 'open'
                   ? 'Requests are being collected. The fixed set appears when this Batch locks.'
                   : availability === 'match_ready'

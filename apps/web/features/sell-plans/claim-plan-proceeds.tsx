@@ -31,6 +31,7 @@ export function ClaimPlanProceeds(props: Props) {
   const [destination, setDestination] = useState<string>();
   const [progress, setProgress] = useState<string>();
   const [error, setError] = useState<string>();
+  const [submitted, setSubmitted] = useState(false);
   if (BigInt(props.claimableRawAmount) === 0n) return null;
   if (!connected || connected.account.address !== props.owner)
     return (
@@ -42,7 +43,11 @@ export function ClaimPlanProceeds(props: Props) {
   const prepare = async () => {
     setError(undefined);
     try {
-      const destination = await ownerTokenDestination({ owner: props.owner, mint: props.quoteMint, tokenProgram: props.quoteTokenProgram });
+      const destination = await ownerTokenDestination({
+        owner: props.owner,
+        mint: props.quoteMint,
+        tokenProgram: props.quoteTokenProgram,
+      });
       setDestination(destination.address);
     } catch {
       setError(
@@ -52,11 +57,45 @@ export function ClaimPlanProceeds(props: Props) {
   };
 
   const submit = async () => {
-    if (!destination || progress) return;
+    if (
+      !destination ||
+      progress ||
+      submitted ||
+      connected?.account.address !== props.owner
+    )
+      return;
     setError(undefined);
     setProgress('Preparing transaction…');
+    let sent = false;
     try {
-      const prepared = await ownerTokenDestination({ owner: props.owner, mint: props.quoteMint, tokenProgram: props.quoteTokenProgram });
+      const latestResponse = await fetch(`/api/sell-plans/${props.plan}`, {
+        cache: 'no-store',
+      });
+      if (!latestResponse.ok) throw new Error('status unavailable');
+      const latest = (await latestResponse.json()) as {
+        owner: string;
+        market: string;
+        proceedsVault: string;
+        accruedQuoteAmount: string;
+        claimedQuoteAmount: string;
+        proceedsVaultRawAmount: string;
+      };
+      if (
+        latest.owner !== props.owner ||
+        latest.market !== props.market ||
+        latest.proceedsVault !== props.proceedsVault ||
+        latest.claimedQuoteAmount !== props.claimedRawAmount ||
+        BigInt(latest.accruedQuoteAmount) -
+          BigInt(latest.claimedQuoteAmount) !==
+          BigInt(props.claimableRawAmount) ||
+        BigInt(latest.proceedsVaultRawAmount) < BigInt(props.claimableRawAmount)
+      )
+        throw new Error('available amount changed');
+      const prepared = await ownerTokenDestination({
+        owner: props.owner,
+        mint: props.quoteMint,
+        tokenProgram: props.quoteTokenProgram,
+      });
       if (prepared.address !== destination)
         throw new Error('destination changed');
       const instruction = await claimPlanProceedsInstruction({
@@ -92,6 +131,8 @@ export function ClaimPlanProceeds(props: Props) {
         prepared.createInstruction,
         instruction,
       ]);
+      sent = true;
+      setSubmitted(true);
       setProgress('Checking confirmation…');
       const [response, afterDestination] = await Promise.all([
         fetch(`/api/sell-plans/${props.plan}`, { cache: 'no-store' }),
@@ -117,7 +158,9 @@ export function ClaimPlanProceeds(props: Props) {
     } catch {
       setProgress(undefined);
       setError(
-        "We couldn't verify the claim yet. Refresh this Plan before trying again.",
+        sent
+          ? "We're checking whether your transaction completed. Refresh this Plan before trying again."
+          : 'The available amount or destination may have changed. Refresh this Plan and review again.',
       );
     }
   };
@@ -144,7 +187,7 @@ export function ClaimPlanProceeds(props: Props) {
             <button
               type="button"
               onClick={() => void submit()}
-              disabled={Boolean(progress)}
+              disabled={Boolean(progress) || submitted}
               className="min-h-11 border border-line-strong bg-surface-3 px-4 text-text-primary disabled:text-text-disabled"
             >
               Approve claim
@@ -163,7 +206,8 @@ export function ClaimPlanProceeds(props: Props) {
         <button
           type="button"
           onClick={() => void prepare()}
-          className="mt-4 min-h-11 border border-line-default px-4 text-sm text-text-primary"
+          disabled={submitted}
+          className="mt-4 min-h-11 border border-line-default px-4 text-sm text-text-primary disabled:text-text-disabled"
         >
           Claim proceeds
         </button>
@@ -175,6 +219,15 @@ export function ClaimPlanProceeds(props: Props) {
         <p className="mt-3 text-sm text-warning" role="alert">
           {error}
         </p>
+      ) : null}
+      {submitted ? (
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="mt-3 min-h-11 text-sm text-text-primary underline"
+        >
+          Refresh status
+        </button>
       ) : null}
     </section>
   );

@@ -42,12 +42,17 @@ export function BuyRequestActions({
   const [destination, setDestination] = useState<string>();
   const [progress, setProgress] = useState<string>();
   const [error, setError] = useState<string>();
+  const [submitted, setSubmitted] = useState(false);
 
   if (
     (request.status !== 'active' && request.status !== 'filled') ||
-    (request.status === 'filled' && escrowRawAmount === '0')
+    escrowRawAmount === '0'
   )
-    return null;
+    return request.status === 'active' || request.status === 'filled' ? (
+      <p className="mt-8 text-sm text-text-secondary">
+        There&apos;s nothing left to return.
+      </p>
+    ) : null;
   if (!connected || connected.account.address !== request.buyer) {
     return (
       <p className="mt-8 text-sm text-text-secondary">
@@ -79,11 +84,37 @@ export function BuyRequestActions({
   };
 
   const submit = async () => {
-    if (!review || !destination || progress) return;
+    if (
+      !review ||
+      !destination ||
+      progress ||
+      submitted ||
+      connected?.account.address !== request.buyer
+    )
+      return;
     const action = review;
     setProgress('Preparing transaction…');
     setError(undefined);
+    let sent = false;
     try {
+      const latestResponse = await fetch(
+        `/api/buy-requests/${request.address}`,
+        { cache: 'no-store' },
+      );
+      if (!latestResponse.ok) throw new Error('status unavailable');
+      const latest = (await latestResponse.json()) as PublicBuyRequest & {
+        escrowRawAmount: string;
+      };
+      if (
+        latest.buyer !== request.buyer ||
+        latest.market !== request.market ||
+        latest.escrow !== request.escrow ||
+        latest.status !== request.status ||
+        latest.lockedBatch ||
+        latest.escrowRawAmount !== escrowRawAmount ||
+        latest.spentQuoteAmount !== request.spentQuoteAmount
+      )
+        throw new Error('available amount changed');
       const prepared = await ownerTokenDestination({
         owner: request.buyer,
         mint: quoteMint,
@@ -127,6 +158,8 @@ export function BuyRequestActions({
         prepared.createInstruction,
         instruction,
       ]);
+      sent = true;
+      setSubmitted(true);
       setProgress('Verifying return…');
       const [response, afterDestination] = await Promise.all([
         fetch(`/api/buy-requests/${request.address}`, { cache: 'no-store' }),
@@ -155,7 +188,9 @@ export function BuyRequestActions({
     } catch {
       setProgress(undefined);
       setError(
-        "We couldn't verify the return yet. Refresh this request before trying again.",
+        sent
+          ? "We're checking whether your transaction completed. Refresh this request before trying again."
+          : 'The available amount or destination may have changed. Refresh this request and review again.',
       );
     }
   };
@@ -183,7 +218,7 @@ export function BuyRequestActions({
             <button
               type="button"
               onClick={() => void submit()}
-              disabled={Boolean(progress)}
+              disabled={Boolean(progress) || submitted}
               className="min-h-12 border border-line-strong bg-surface-3 px-5 text-text-primary disabled:text-text-disabled"
             >
               Approve return
@@ -206,7 +241,8 @@ export function BuyRequestActions({
               expired || request.status === 'filled' ? 'refund' : 'cancel',
             )
           }
-          className="min-h-11 border border-line-default px-4 text-sm text-text-primary"
+          disabled={submitted}
+          className="min-h-11 border border-line-default px-4 text-sm text-text-primary disabled:text-text-disabled"
         >
           {expired || request.status === 'filled'
             ? 'Refund unused quote'
@@ -222,6 +258,15 @@ export function BuyRequestActions({
         <p className="mt-3 text-sm text-warning" role="alert">
           {error}
         </p>
+      ) : null}
+      {submitted ? (
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="mt-3 min-h-11 text-sm text-text-primary underline"
+        >
+          Refresh status
+        </button>
       ) : null}
     </div>
   );

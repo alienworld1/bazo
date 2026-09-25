@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { address } from '@solana/kit';
+import { fetchBatchPolicy } from '@bazo/sdk';
 import { notFound } from 'next/navigation';
 import { AppShell } from '@/components/app-shell';
 import { BuyRequestActions } from '@/features/buy-requests/buy-request-actions';
@@ -27,15 +29,26 @@ export default async function BuyRequestPage({
   );
   if (!market) notFound();
 
-  const [chainTime, quoteBalance] = await Promise.all([
+  const env = getEnvironment();
+  const [chainTime, quoteBalance, batchPolicy] = await Promise.all([
     readChainUnixTimestamp(),
     readSpendableQuoteBalance(market, request.buyer),
+    fetchBatchPolicy({
+      rpcUrl: env.SOLANA_RPC_URL,
+      programAddress: address(env.BAZO_PROGRAM_ID),
+      market: address(request.market),
+    }),
   ]);
+  if (!batchPolicy) throw new Error('Batch policy unavailable');
   const batch = request.lockedBatch
     ? await readBatch(request.lockedBatch)
     : await readCurrentOpenBatch(request.market);
   const expired =
     request.status === 'active' && BigInt(request.expiresAt) <= chainTime;
+  const batchDuration = BigInt(batchPolicy.windowSeconds);
+  const firstWindowEnd =
+    (BigInt(request.createdAt) / batchDuration + 1n) * batchDuration;
+  const matchingWindowOpen = chainTime < firstWindowEnd;
   const title =
     request.status === 'canceled'
       ? 'Request canceled'
@@ -61,8 +74,8 @@ export default async function BuyRequestPage({
       `${formatDisplayAmount(request.spentQuoteAmount, quoteBalance.decimals)} ${market.quoteSymbol}`,
     ],
     [
-      'Quote refundable',
-      `${formatDisplayAmount(request.refundableQuoteAmount, quoteBalance.decimals)} ${market.quoteSymbol}`,
+      'Unused quote',
+      `${formatDisplayAmount(request.escrowRawAmount, quoteBalance.decimals)} ${market.quoteSymbol}`,
     ],
     [
       'Request expires',
@@ -97,7 +110,9 @@ export default async function BuyRequestPage({
             : request.status === 'closed'
               ? 'Your stock was delivered and unused quote was returned.'
               : request.status === 'active' && !expired
-                ? 'Your quote funds are locked onchain. Matching needs your private details before this request can participate.'
+                ? request.lockedBatch
+                  ? 'This request is reserved for its Batch. Unused quote can be returned once the lock resolves.'
+                  : 'Your quote is held onchain. You can cancel this request to return the unused amount.'
                 : expired
                   ? 'This request has expired. Unused quote can be returned to your wallet.'
                   : 'This request cannot enter matching.'}
@@ -118,7 +133,19 @@ export default async function BuyRequestPage({
           stockDecimals={market.tokenDecimals}
           symbol={market.symbol}
         />
-        <BuyRequestDelivery key={request.commitmentHex} request={request} />
+        <BuyRequestDelivery
+          key={request.commitmentHex}
+          request={request}
+          matchingWindowOpen={matchingWindowOpen}
+        />
+        {request.status === 'active' &&
+        !matchingWindowOpen &&
+        !request.lockedBatch ? (
+          <p className="mt-6 text-sm text-text-secondary">
+            This request&apos;s Batch window has passed. It won&apos;t enter
+            another Batch; you can cancel it to return unused quote.
+          </p>
+        ) : null}
         {batch ? (
           <section className="mt-8 border-t border-line-default pt-5">
             <p
