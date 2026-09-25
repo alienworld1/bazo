@@ -4,7 +4,8 @@ const { webcrypto } = require('node:crypto');
 const anchor = require('@anchor-lang/core');
 const idl = require('../target/idl/bazo.json');
 
-const DEVNET_RPC_URL = 'https://api.devnet.solana.com';
+const DEVNET_RPC_URL = process.env.SOLANA_RPC_URL;
+if (process.env.SOLANA_NETWORK !== 'devnet' || !DEVNET_RPC_URL) throw new Error('Configured Devnet RPC is required');
 const MARKET = new anchor.web3.PublicKey('H83inusRWiShJZsVT3rTFXafo1wSCgb5HKTJEsM2LRgu');
 const QUOTE_MINT = new anchor.web3.PublicKey('EDJpD3ngqiy5ZhWZjDNYZDzCuTvkW42ea72X6TAuDeL3');
 const STOCK_MINT = new anchor.web3.PublicKey('3bEb8QPW7edXzvcm1udGcRjr6NfpbvyXrwAdK5upXUTQ');
@@ -92,7 +93,7 @@ async function main() {
 }
 
 function randomBytes(length) { const bytes = new Uint8Array(length); webcrypto.getRandomValues(bytes); return Buffer.from(bytes); }
-function randomU64() { const bytes = randomBytes(8); const value = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(0, true); return value === 0n ? randomU64() : value; }
+function randomU64() { const bytes = randomBytes(8); const value = bytes.readBigUInt64LE(); return value === 0n ? randomU64() : value; }
 async function sha256(value) { return Buffer.from(await webcrypto.subtle.digest('SHA-256', value)); }
 function u16(value) { const bytes = Buffer.alloc(2); bytes.writeUInt16LE(value); return bytes; }
 function i32(value) { const bytes = Buffer.alloc(4); bytes.writeInt32LE(value); return bytes; }
