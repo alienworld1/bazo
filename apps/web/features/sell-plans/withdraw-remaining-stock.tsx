@@ -84,6 +84,7 @@ export function WithdrawRemainingStock(props: Props) {
         stockVault: string;
         currentStageIndex: number;
         remainingRawInventory: string;
+        stockMultiplier: string;
         reservation: unknown;
       };
       if (
@@ -92,6 +93,7 @@ export function WithdrawRemainingStock(props: Props) {
         latest.stockVault !== props.stockVault ||
         latest.currentStageIndex !== props.currentStageIndex ||
         latest.remainingRawInventory !== props.rawAmount ||
+        latest.stockMultiplier !== props.multiplier ||
         latest.reservation
       )
         throw new Error('available amount changed');

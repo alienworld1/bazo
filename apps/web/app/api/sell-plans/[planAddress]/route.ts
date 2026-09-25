@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { readPublicSellPlan } from '@/server/plans';
+import { getEnabledMarkets } from '@/server/market-registry';
+import { readStockMultiplier } from '@/server/holdings';
 
 export async function GET(
   _request: Request,
@@ -13,5 +15,26 @@ export async function GET(
       { status: 404 },
     );
   }
-  return NextResponse.json(plan, { headers: { 'Cache-Control': 'no-store' } });
+  const market = getEnabledMarkets().find(
+    item =>
+      item.stockMint === plan.stockVaultMint &&
+      item.quoteMint === plan.proceedsVaultMint,
+  );
+  if (!market)
+    return NextResponse.json(
+      { message: "We couldn't verify this Market right now." },
+      { status: 503 },
+    );
+  try {
+    const stockMultiplier = await readStockMultiplier(market);
+    return NextResponse.json(
+      { ...plan, stockMultiplier },
+      { headers: { 'Cache-Control': 'no-store' } },
+    );
+  } catch {
+    return NextResponse.json(
+      { message: "We couldn't confirm the displayed share amount. Try again." },
+      { status: 503 },
+    );
+  }
 }
