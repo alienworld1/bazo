@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
+import { useState } from 'react';
 import { WalletControl } from './wallet-control';
 
 const navigation = [
@@ -15,6 +16,7 @@ const navigation = [
 
 export function TopNavigation() {
   const pathname = usePathname();
+  const [logoFailed, setLogoFailed] = useState(false);
   return (
     <header className="border-b border-line-subtle">
       <nav
@@ -26,15 +28,22 @@ export function TopNavigation() {
           aria-label="Bazo home"
           className="mr-3 inline-flex shrink-0 items-center"
         >
-          <Image
-            src="/wordmark-logo.png"
-            alt="Bazo"
-            width={120}
-            height={40}
-            unoptimized
-            priority
-            className="h-8 w-auto sm:h-9"
-          />
+          {logoFailed ? (
+            <span className="text-lg font-semibold tracking-tight text-text-primary">
+              Bazo
+            </span>
+          ) : (
+            <Image
+              src="/wordmark-logo.png"
+              alt="Bazo"
+              width={120}
+              height={40}
+              unoptimized
+              priority
+              onError={() => setLogoFailed(true)}
+              className="h-8 w-auto sm:h-9"
+            />
+          )}
         </Link>
         <div className="col-span-2 row-start-2 flex flex-wrap items-center gap-1 sm:min-w-0 sm:flex-1 sm:flex-nowrap sm:overflow-x-auto">
           {navigation.map(item => (
