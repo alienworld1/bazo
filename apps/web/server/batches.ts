@@ -22,40 +22,6 @@ export async function readBatch(
   });
 }
 
-export async function readRelevantBatch(
-  market: string,
-): Promise<PublicBatch | null> {
-  const env = getEnvironment();
-  const now = await readChainUnixTimestamp();
-  const policy = await fetchBatchPolicy({
-    rpcUrl: env.SOLANA_RPC_URL,
-    programAddress: address(env.BAZO_PROGRAM_ID),
-    market: address(market),
-  });
-  if (!policy) return null;
-  const duration = BigInt(policy.windowSeconds);
-  const start = batchWindowStart(now, duration);
-  const offsets = Array.from(
-    { length: Number(BigInt(policy.lockSeconds) / duration + 3n) },
-    (_, index) => BigInt(index),
-  );
-  const keys = await Promise.all(
-    offsets.map(offset =>
-      deriveBatchAddress(
-        address(env.BAZO_PROGRAM_ID),
-        address(market),
-        start - offset * duration,
-      ),
-    ),
-  );
-  const batches = await Promise.all(keys.map(key => readBatch(key)));
-  return (
-    batches.find(batch => batch?.status === 'locked') ??
-    batches.find(batch => batch?.status === 'open') ??
-    null
-  );
-}
-
 export async function readCurrentOpenBatch(
   market: string,
 ): Promise<PublicBatch | null> {

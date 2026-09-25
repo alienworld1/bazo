@@ -5,7 +5,6 @@ import { OwnerStagePreview } from '@/features/sell-plans/owner-stage-preview';
 import { PlanFact } from '@/features/sell-plans/plan-fact';
 import { CurrentStageDelivery } from '@/features/sell-plans/current-stage-delivery';
 import { PlanRecoveryPanel } from '@/features/sell-plans/recovery/plan-recovery-panel';
-import { readRelevantBatch } from '@/server/batches';
 import { readPublicSellPlan } from '@/server/plans';
 import { readSalesForPlan } from '@/server/settlements';
 import { getEnabledMarkets } from '@/server/market-registry';
@@ -38,10 +37,7 @@ export default async function SellPlanDetailPage({
   const { reconciliation, recovery, signature } = await searchParams;
   const plan = await readPublicSellPlan(planAddress);
   if (!plan) notFound();
-  const [batch, stages, chainNow] = await Promise.all([
-    plan.status === 'active'
-      ? readRelevantBatch(plan.market)
-      : Promise.resolve(null),
+  const [stages, chainNow] = await Promise.all([
     readSalesForPlan(plan),
     readChainUnixTimestamp(),
   ]);
@@ -229,19 +225,13 @@ export default async function SellPlanDetailPage({
               Batch status
             </h2>
             <p className="mt-2 text-sm text-text-secondary">
-              {batch
-                ? batch.status === 'open'
-                  ? 'Waiting for compatible demand.'
-                  : batch.status === 'locked'
-                    ? 'Matching is being checked.'
-                    : batch.status === 'settled'
-                      ? 'Stage sold.'
-                      : 'This Batch ended without a sale. Your Stage remains sealed.'
+              {plan.reservation
+                ? 'Matching is being checked.'
                 : 'Waiting for compatible demand.'}
             </p>
-            {batch ? (
+            {plan.reservation ? (
               <Link
-                href={`/batches/${batch.address}`}
+                href={`/batches/${plan.reservation.batch}`}
                 className="mt-3 inline-flex min-h-11 items-center text-sm text-text-primary underline"
               >
                 View Batch
