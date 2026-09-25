@@ -12,6 +12,6 @@ ignoredBuiltDependencies:
 allowBuilds:
   bigint-buffer: false
   bufferutil: false
-  esbuild: set this to true or false
+  esbuild: true
   unrs-resolver: false
   utf-8-validate: false
