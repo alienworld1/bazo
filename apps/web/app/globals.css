@@ -13,10 +13,14 @@
   --color-line-subtle: #24282b;
   --color-line-default: #34393d;
   --color-line-strong: #555c60;
+  --color-sealed: #817b8d;
+  --color-active: #c0cc78;
+  --color-executed: #76a88d;
   --color-info: #7fa4b5;
   --color-warning: #c4a16b;
   --color-locked: #a7a18b;
   --color-focus: #d2de88;
+  --duration-stage: 700ms;
 }
 
 @theme inline {
@@ -32,6 +36,9 @@
   --color-line-subtle: var(--color-line-subtle);
   --color-line-default: var(--color-line-default);
   --color-line-strong: var(--color-line-strong);
+  --color-sealed: var(--color-sealed);
+  --color-active: var(--color-active);
+  --color-executed: var(--color-executed);
   --color-info: var(--color-info);
   --color-warning: var(--color-warning);
   --color-locked: var(--color-locked);
@@ -46,8 +53,10 @@ body {
   font-family: var(--font-instrument-sans), sans-serif;
 }
 
-* {
-  border-color: var(--color-line-default);
+@layer base {
+  * {
+    border-color: var(--color-line-default);
+  }
 }
 :focus-visible {
   outline: 2px solid var(--color-focus);

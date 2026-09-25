@@ -15,7 +15,8 @@ const ibmPlexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: 'Bazo',
-  description: 'Sealed stock sell plans for one-way onchain liquidity.',
+  description:
+    'Sell tokenized stock in planned stages while later sale terms stay hidden until they sell.',
 };
 
 export default function RootLayout({ children }: LayoutProps<'/'>) {
