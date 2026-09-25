@@ -51,13 +51,13 @@ pub struct SettleStage<'info> {
         seeds = [MARKET_SEED, market.stock_mint.as_ref(), market.quote_mint.as_ref()],
         bump = market.bump,
     )]
-    pub market: Account<'info, Market>,
+    pub market: Box<Account<'info, Market>>,
     #[account(
         has_one = market @ BazoError::MarketMismatch,
         seeds = [SETTLEMENT_POLICY_SEED, market.key().as_ref()],
         bump = policy.bump,
     )]
-    pub policy: Account<'info, SettlementPolicy>,
+    pub policy: Box<Account<'info, SettlementPolicy>>,
     #[account(
         mut,
         has_one = market @ BazoError::MarketMismatch,
@@ -66,7 +66,7 @@ pub struct SettleStage<'info> {
         seeds = [PLAN_SEED, &PLAN_VERSION.to_le_bytes(), plan.owner.as_ref(), &plan.plan_nonce.to_le_bytes()],
         bump = plan.bump,
     )]
-    pub plan: Account<'info, Plan>,
+    pub plan: Box<Account<'info, Plan>>,
     #[account(
         mut,
         close = caller,
@@ -75,14 +75,14 @@ pub struct SettleStage<'info> {
         seeds = [PLAN_RESERVATION_SEED, plan.key().as_ref(), &plan.current_stage_index.to_le_bytes()],
         bump = reservation.bump,
     )]
-    pub reservation: Account<'info, PlanReservation>,
+    pub reservation: Box<Account<'info, PlanReservation>>,
     #[account(
         mut,
         has_one = market @ BazoError::MarketMismatch,
         seeds = [BATCH_SEED, &BATCH_VERSION.to_le_bytes(), market.key().as_ref(), &batch.window_start.to_le_bytes()],
         bump = batch.bump,
     )]
-    pub batch: Account<'info, Batch>,
+    pub batch: Box<Account<'info, Batch>>,
     #[account(
         init,
         payer = caller,
@@ -90,7 +90,7 @@ pub struct SettleStage<'info> {
         seeds = [RECEIPT_SEED, plan.key().as_ref(), &plan.current_stage_index.to_le_bytes()],
         bump,
     )]
-    pub receipt: Account<'info, SettlementReceipt>,
+    pub receipt: Box<Account<'info, SettlementReceipt>>,
     #[account(
         init,
         payer = caller,
@@ -98,11 +98,11 @@ pub struct SettleStage<'info> {
         seeds = [BATCH_OUTCOME_SEED, batch.key().as_ref()],
         bump,
     )]
-    pub outcome: Account<'info, BatchOutcome>,
+    pub outcome: Box<Account<'info, BatchOutcome>>,
     #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)]
-    pub stock_mint: InterfaceAccount<'info, Mint>,
+    pub stock_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(owner = anchor_spl::token_2022::ID @ BazoError::UnsupportedTokenProgram)]
-    pub quote_mint: InterfaceAccount<'info, Mint>,
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         mut,
         seeds = [STOCK_VAULT_SEED, plan.key().as_ref()],
@@ -110,7 +110,7 @@ pub struct SettleStage<'info> {
         constraint = stock_vault.owner == plan.key() @ BazoError::InvalidStockSource,
         constraint = stock_vault.mint == stock_mint.key() @ BazoError::MarketMismatch,
     )]
-    pub stock_vault: InterfaceAccount<'info, TokenAccount>,
+    pub stock_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
         mut,
         seeds = [PROCEEDS_VAULT_SEED, plan.key().as_ref()],
@@ -118,7 +118,7 @@ pub struct SettleStage<'info> {
         constraint = proceeds_vault.owner == plan.key() @ BazoError::ProceedsAccountingMismatch,
         constraint = proceeds_vault.mint == quote_mint.key() @ BazoError::MarketMismatch,
     )]
-    pub proceeds_vault: InterfaceAccount<'info, TokenAccount>,
+    pub proceeds_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(address = market.stock_token_program @ BazoError::MarketMismatch)]
     pub stock_token_program: Interface<'info, TokenInterface>,
     #[account(address = market.quote_token_program @ BazoError::MarketMismatch)]
