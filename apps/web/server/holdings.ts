@@ -8,7 +8,9 @@ import {
 } from '@solana/kit';
 import { decodeToken, fetchMint } from '@solana-program/token-2022';
 import type { MarketConfig, SupportedHolding } from '@/lib/markets';
+import { currentScaledUiMultiplier } from '@/lib/scaled-ui-multiplier';
 import { aggregateRawAmounts, formatDisplayAmount } from '@/lib/token-amounts';
+import { readChainUnixTimestamp } from './buy-requests';
 import { getEnvironment } from './env';
 
 export async function readSupportedHolding(
@@ -74,7 +76,10 @@ export async function readSupportedHolding(
   );
   const multiplier =
     scaledExtension?.__kind === 'ScaledUiAmountConfig'
-      ? String(scaledExtension.multiplier)
+      ? currentScaledUiMultiplier(
+          scaledExtension,
+          await readChainUnixTimestamp(),
+        )
       : '1';
 
   return {
@@ -104,9 +109,9 @@ export async function readStockMultiplier(market: MarketConfig): Promise<string>
   if (extensions.some(extension => !market.supportedStockExtensions.includes(extension.__kind)))
     throw new Error('unsupported_mint_extension');
   const scaled = extensions.find(extension => extension.__kind === 'ScaledUiAmountConfig');
-  const multiplier = scaled?.__kind === 'ScaledUiAmountConfig' ? String(scaled.multiplier) : '1';
-  if (!/^\d+(?:\.\d+)?$/.test(multiplier) || Number(multiplier) <= 0) throw new Error('unsupported_stock_multiplier');
-  return multiplier;
+  return scaled?.__kind === 'ScaledUiAmountConfig'
+    ? currentScaledUiMultiplier(scaled, await readChainUnixTimestamp())
+    : '1';
 }
 
 export async function readSpendableQuoteBalance(
