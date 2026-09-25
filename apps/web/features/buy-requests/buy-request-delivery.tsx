@@ -4,6 +4,7 @@ import { useConnectedWallet } from '@solana/kit-plugin-wallet/react';
 import { useEffect, useState } from 'react';
 import type { PublicBuyRequest } from '@bazo/sdk';
 import { solanaClient } from '@/components/solana-client';
+import { useHasHydrated } from '@/components/use-has-hydrated';
 import { deliverBuyRequestOpening } from './deliver-buy-request-opening';
 import { getVerifiedBuyRequestOpening } from './private-buy-request-memory';
 
@@ -14,12 +15,13 @@ export function BuyRequestDelivery({
   request: PublicBuyRequest;
   matchingWindowOpen: boolean;
 }) {
+  const hasHydrated = useHasHydrated();
   const connected = useConnectedWallet(solanaClient);
   const [status, setStatus] = useState<
     'checking' | 'needed' | 'delivered' | 'sending'
   >('checking');
   const [error, setError] = useState<string>();
-  const isOwner = connected?.account.address === request.buyer;
+  const isOwner = hasHydrated && connected?.account.address === request.buyer;
 
   useEffect(() => {
     if (

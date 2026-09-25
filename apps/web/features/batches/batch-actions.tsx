@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { expireBatchInstruction, type PublicBatch } from '@bazo/sdk';
 import { solanaClient } from '@/components/solana-client';
 import { simulateWalletTransaction } from '@/components/simulate-wallet-transaction';
+import { useHasHydrated } from '@/components/use-has-hydrated';
 
 export function BatchActions({
   batch,
@@ -17,6 +18,7 @@ export function BatchActions({
   chainTime: string;
   programAddress: string;
 }) {
+  const hasHydrated = useHasHydrated();
   const connected = useConnectedWallet(solanaClient);
   const router = useRouter();
   const [progress, setProgress] = useState<string>();
@@ -71,7 +73,7 @@ export function BatchActions({
         The lock deadline has passed. Anyone can release this Batch so owners
         can recover unused quote.
       </p>
-      {connected ? (
+      {hasHydrated && connected ? (
         <button
           type="button"
           disabled={Boolean(progress) || submitted}

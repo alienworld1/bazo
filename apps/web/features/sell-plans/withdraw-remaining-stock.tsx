@@ -9,6 +9,7 @@ import { ownerTokenDestination } from '@/components/owner-token-destination';
 import { simulateWalletTransaction } from '@/components/simulate-wallet-transaction';
 import { solanaClient } from '@/components/solana-client';
 import { formatDisplayAmount } from '@/lib/token-amounts';
+import { useHasHydrated } from '@/components/use-has-hydrated';
 
 type Props = {
   programAddress: string;
@@ -26,6 +27,7 @@ type Props = {
 };
 
 export function WithdrawRemainingStock(props: Props) {
+  const hasHydrated = useHasHydrated();
   const connected = useConnectedWallet(solanaClient);
   const router = useRouter();
   const [destination, setDestination] = useState<string>();
@@ -33,13 +35,14 @@ export function WithdrawRemainingStock(props: Props) {
   const [error, setError] = useState<string>();
   const [submitted, setSubmitted] = useState(false);
   const reviewContext = `${connected?.account.address ?? ''}:${props.rawAmount}:${props.multiplier}`;
-  const [previousReviewContext, setPreviousReviewContext] = useState(reviewContext);
+  const [previousReviewContext, setPreviousReviewContext] =
+    useState(reviewContext);
   if (previousReviewContext !== reviewContext) {
     setPreviousReviewContext(reviewContext);
     setDestination(undefined);
   }
   if (BigInt(props.rawAmount) === 0n) return null;
-  if (!connected || connected.account.address !== props.owner)
+  if (!hasHydrated || !connected || connected.account.address !== props.owner)
     return (
       <p className="mt-3 text-sm text-text-secondary">
         Connect the wallet that owns this Plan to recover remaining stock.

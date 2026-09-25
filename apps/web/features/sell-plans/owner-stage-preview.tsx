@@ -3,6 +3,7 @@
 import { useConnectedWallet } from '@solana/kit-plugin-wallet/react';
 import { useEffect, useSyncExternalStore } from 'react';
 import { solanaClient } from '@/components/solana-client';
+import { useHasHydrated } from '@/components/use-has-hydrated';
 import {
   clearPrivatePlansExcept,
   getPrivatePlanPreview,
@@ -21,6 +22,7 @@ export function OwnerStagePreview({
   currentStageIndex: number;
   currentCommitment: string;
 }) {
+  const hasHydrated = useHasHydrated();
   const connected = useConnectedWallet(solanaClient);
   useSyncExternalStore(
     subscribeToPrivatePlans,
@@ -31,7 +33,7 @@ export function OwnerStagePreview({
     clearPrivatePlansExcept(connected?.account.address);
   }, [connected?.account.address]);
   const candidate =
-    connected?.account.address === owner
+    hasHydrated && connected?.account.address === owner
       ? getPrivatePlanPreview(plan, owner)
       : undefined;
   const preview =

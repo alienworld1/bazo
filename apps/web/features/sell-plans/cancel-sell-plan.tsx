@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { simulateWalletTransaction } from '@/components/simulate-wallet-transaction';
 import { solanaClient } from '@/components/solana-client';
+import { useHasHydrated } from '@/components/use-has-hydrated';
 
 type Props = {
   programAddress: string;
@@ -19,15 +20,17 @@ type Props = {
 };
 
 export function CancelSellPlan(props: Props) {
+  const hasHydrated = useHasHydrated();
   const connected = useConnectedWallet(solanaClient);
   const router = useRouter();
   const [review, setReview] = useState(false);
   const [progress, setProgress] = useState<string>();
   const [error, setError] = useState<string>();
   const [submitted, setSubmitted] = useState(false);
-  const isOwner = connected?.account.address === props.owner;
+  const isOwner = hasHydrated && connected?.account.address === props.owner;
   const reviewContext = `${connected?.account.address ?? ''}:${props.currentStageIndex}:${props.currentCommitment}:${props.remainingRawInventory}`;
-  const [previousReviewContext, setPreviousReviewContext] = useState(reviewContext);
+  const [previousReviewContext, setPreviousReviewContext] =
+    useState(reviewContext);
   if (previousReviewContext !== reviewContext) {
     setPreviousReviewContext(reviewContext);
     setReview(false);

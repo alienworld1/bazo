@@ -1,6 +1,5 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
 import {
   useConnect,
   useConnectedWallet,
@@ -9,12 +8,7 @@ import {
   useWallets,
 } from '@solana/kit-plugin-wallet/react';
 import { solanaClient } from './solana-client';
-
-const subscribeToHydration = () => () => undefined;
-
-function useHasHydrated() {
-  return useSyncExternalStore(subscribeToHydration, () => true, () => false);
-}
+import { useHasHydrated } from './use-has-hydrated';
 
 export function WalletControl() {
   const hasHydrated = useHasHydrated();

@@ -5,6 +5,7 @@ import { serializeOpening } from '@bazo/sdk';
 import { useConnectedWallet } from '@solana/kit-plugin-wallet/react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { solanaClient } from '@/components/solana-client';
+import { useHasHydrated } from '@/components/use-has-hydrated';
 import { authenticatePrivateStorage } from './recovery/private-storage-client';
 import {
   getPrivatePlanPackage,
@@ -23,6 +24,7 @@ export function CurrentStageDelivery({
   stageIndex: number;
   commitment: string;
 }) {
+  const hasHydrated = useHasHydrated();
   const connected = useConnectedWallet(solanaClient);
   useSyncExternalStore(
     subscribeToPrivatePlans,
@@ -50,7 +52,7 @@ export function CurrentStageDelivery({
       alive = false;
     };
   }, [connected?.account.address, owner, plan, stageIndex, commitment]);
-  if (connected?.account.address !== owner)
+  if (!hasHydrated || connected?.account.address !== owner)
     return (
       <p className="mt-8 border-t border-line-default pt-5 text-sm text-text-secondary">
         Connect the wallet that owns this Plan to provide matching details.

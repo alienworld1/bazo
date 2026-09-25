@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { simulateWalletTransaction } from '@/components/simulate-wallet-transaction';
 import { solanaClient } from '@/components/solana-client';
+import { useHasHydrated } from '@/components/use-has-hydrated';
 
 export function ReleaseStageReservation({
   programAddress,
@@ -17,6 +18,7 @@ export function ReleaseStageReservation({
   plan: string;
   stageIndex: number;
 }) {
+  const hasHydrated = useHasHydrated();
   const connected = useConnectedWallet(solanaClient);
   const router = useRouter();
   const [progress, setProgress] = useState<string>();
@@ -63,7 +65,7 @@ export function ReleaseStageReservation({
 
   return (
     <div className="mt-4" aria-live="polite">
-      {connected ? (
+      {hasHydrated && connected ? (
         <button
           type="button"
           disabled={Boolean(progress) || sent}

@@ -13,6 +13,7 @@ import type { PublicBuyRequest } from '@/lib/buy-request-projection';
 import { forgetBuyRequestOpening } from './private-buy-request-memory';
 import { simulateWalletTransaction } from '@/components/simulate-wallet-transaction';
 import { ownerTokenDestination } from '@/components/owner-token-destination';
+import { useHasHydrated } from '@/components/use-has-hydrated';
 import { formatDisplayAmount } from '@/lib/token-amounts';
 
 type Props = {
@@ -36,6 +37,7 @@ export function BuyRequestActions({
   quoteDecimals,
   expired,
 }: Props) {
+  const hasHydrated = useHasHydrated();
   const connected = useConnectedWallet(solanaClient);
   const router = useRouter();
   const [review, setReview] = useState<'cancel' | 'refund'>();
@@ -44,7 +46,8 @@ export function BuyRequestActions({
   const [error, setError] = useState<string>();
   const [submitted, setSubmitted] = useState(false);
   const reviewContext = `${connected?.account.address ?? ''}:${escrowRawAmount}:${request.status}:${request.lockedBatch ?? ''}`;
-  const [previousReviewContext, setPreviousReviewContext] = useState(reviewContext);
+  const [previousReviewContext, setPreviousReviewContext] =
+    useState(reviewContext);
   if (previousReviewContext !== reviewContext) {
     setPreviousReviewContext(reviewContext);
     setReview(undefined);
@@ -60,7 +63,11 @@ export function BuyRequestActions({
         There&apos;s nothing left to return.
       </p>
     ) : null;
-  if (!connected || connected.account.address !== request.buyer) {
+  if (
+    !hasHydrated ||
+    !connected ||
+    connected.account.address !== request.buyer
+  ) {
     return (
       <p className="mt-8 text-sm text-text-secondary">
         Reconnect the wallet that owns this Buy Request to recover unused quote.

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { BackupSellPlanDialog } from './backup-sell-plan-dialog';
 import { usePlanRecovery } from './use-plan-recovery';
+import { useHasHydrated } from '@/components/use-has-hydrated';
 
 export function PlanRecoveryPanel({
   plan,
@@ -12,11 +13,12 @@ export function PlanRecoveryPanel({
   plan: string;
   owner: string;
 }) {
+  const hasHydrated = useHasHydrated();
   const recovery = usePlanRecovery(plan, owner);
   const [dialog, setDialog] = useState(false);
   const backupButton = useRef<HTMLButtonElement>(null);
 
-  if (!recovery.isOwner) return null;
+  if (!hasHydrated || !recovery.isOwner) return null;
 
   const [title, detail] = recovery.statusCopy;
   return (
