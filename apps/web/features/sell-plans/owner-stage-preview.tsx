@@ -13,9 +13,13 @@ import {
 export function OwnerStagePreview({
   plan,
   owner,
+  currentStageIndex,
+  currentCommitment,
 }: {
   plan: string;
   owner: string;
+  currentStageIndex: number;
+  currentCommitment: string;
 }) {
   const connected = useConnectedWallet(solanaClient);
   useSyncExternalStore(
@@ -26,9 +30,16 @@ export function OwnerStagePreview({
   useEffect(() => {
     clearPrivatePlansExcept(connected?.account.address);
   }, [connected?.account.address]);
-  const preview =
+  const candidate =
     connected?.account.address === owner
       ? getPrivatePlanPreview(plan, owner)
+      : undefined;
+  const preview =
+    candidate?.package.stages[currentStageIndex]?.commitment &&
+    Array.from(candidate.package.stages[currentStageIndex].commitment, byte =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('') === currentCommitment
+      ? candidate
       : undefined;
   if (!preview) {
     return (
@@ -49,12 +60,16 @@ export function OwnerStagePreview({
             key={stage.index}
             className="border-b border-line-subtle pb-3 text-sm text-text-secondary"
           >
-            <span className="font-medium text-text-primary">
-              Stage {stage.index + 1}
-            </span>
-            <span className="ml-3">{stage.rawQuantity} raw</span>
-            <span className="ml-3">{formatPremium(stage.minPremiumBps)}</span>
-            <span className="ml-3">{stage.allowedSessions.join(', ')}</span>
+            <details>
+              <summary className="min-h-11 cursor-pointer py-3 font-medium text-text-primary">
+                Stage {stage.index + 1} ·{' '}
+                {stage.index < currentStageIndex ? 'Executed' : 'Sealed'}
+              </summary>
+              <p className="pb-3 pl-4">
+                {stage.rawQuantity} raw · {formatPremium(stage.minPremiumBps)} ·{' '}
+                {stage.allowedSessions.join(', ')}
+              </p>
+            </details>
           </li>
         ))}
       </ol>

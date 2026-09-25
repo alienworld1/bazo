@@ -5,8 +5,10 @@ import { PlanFact } from './plan-fact';
 export function SaleReceipt({ sale }: { sale: ConfirmedSale }) {
   const { receipt, signature } = sale;
   return (
-    <section className="mt-8 border-t border-line-default pt-5">
-      <h2 className="text-lg font-medium text-text-primary">Stage sold</h2>
+    <section className="border-t border-line-default py-5">
+      <h3 className="text-lg font-medium text-text-primary">
+        Stage {receipt.stageIndex + 1} sold
+      </h3>
       <p className="mt-2 text-sm text-text-secondary">
         {receipt.rawStockQuantity} raw stock units sold for{' '}
         {receipt.rawQuoteQuantity} raw quote units at a{' '}
@@ -43,7 +45,9 @@ export function SaleReceipt({ sale }: { sale: ConfirmedSale }) {
           <PlanFact label="Receipt" value={receipt.address} />
           {signature ? (
             <PlanFact label="Confirmed transaction" value={signature} />
-          ) : null}
+          ) : (
+            <p className="text-text-tertiary">Transaction link unavailable</p>
+          )}
           {receipt.fills.map(fill => (
             <PlanFact
               key={fill.request}

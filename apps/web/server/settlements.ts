@@ -8,26 +8,60 @@ import {
   type PublicSettlementReceipt,
 } from '@bazo/sdk';
 import { getEnvironment } from './env';
-import { readPublicSellPlan } from './plans';
+import { readPublicSellPlan, type VerifiedPublicSellPlan } from './plans';
 
 export type ConfirmedSale = {
   receipt: PublicSettlementReceipt;
   signature: string | null;
+  occurredAtUnix?: string | null;
 };
 
+export async function readSalesForPlan(plan: VerifiedPublicSellPlan) {
+  const stageCount = plan.currentStageIndex;
+  if (!Number.isSafeInteger(stageCount) || stageCount < 0 || stageCount > 6)
+    throw new Error('invalid stage count');
+  const firstResults = await Promise.allSettled(
+    Array.from({ length: stageCount }, (_, index) =>
+      readSaleForPlan(plan, index),
+    ),
+  );
+  const results = await Promise.all(
+    firstResults.map(async (result, index) => {
+      if (result.status === 'fulfilled' && result.value) return result;
+      try {
+        return {
+          status: 'fulfilled' as const,
+          value: await readSaleForPlan(plan, index),
+        };
+      } catch (reason) {
+        return { status: 'rejected' as const, reason };
+      }
+    }),
+  );
+  return results.map((result, index) => ({
+    stageIndex: index,
+    sale: result.status === 'fulfilled' ? result.value : null,
+    unavailable:
+      result.status === 'rejected' ||
+      (result.status === 'fulfilled' && result.value === null),
+  }));
+}
+
 export async function readSaleForPlan(
-  plan: string,
+  plan: VerifiedPublicSellPlan,
   stageIndex: number,
 ): Promise<ConfirmedSale | null> {
-  if (stageIndex < 0) return null;
+  if (stageIndex < 0 || plan.currentStageIndex <= stageIndex) return null;
   const env = getEnvironment();
   const receipt = await fetchSaleReceipt({
     rpcUrl: env.SOLANA_RPC_URL,
     programAddress: address(env.BAZO_PROGRAM_ID),
-    plan: address(plan),
+    plan: address(plan.address),
     stageIndex,
   });
   if (!receipt) return null;
+  if (receipt.plan !== plan.address || receipt.stageIndex !== stageIndex)
+    return null;
   const outcome = await fetchBatchOutcome({
     rpcUrl: env.SOLANA_RPC_URL,
     programAddress: address(env.BAZO_PROGRAM_ID),
@@ -36,10 +70,16 @@ export async function readSaleForPlan(
   if (
     !outcome ||
     outcome.receipt !== receipt.address ||
-    outcome.plan !== receipt.plan
+    outcome.plan !== receipt.plan ||
+    outcome.batch !== receipt.batch
   )
     return null;
-  return { receipt, signature: await findSaleSignature(receipt) };
+  const transaction = await findSaleSignature(receipt).catch(() => null);
+  return {
+    receipt,
+    signature: transaction?.signature ?? null,
+    occurredAtUnix: transaction?.occurredAtUnix ?? receipt.executedAt,
+  };
 }
 
 export async function readSaleForBatch(
@@ -68,12 +108,17 @@ export async function readSaleForBatch(
     plan.currentStageIndex <= receipt.stageIndex
   )
     return null;
-  return { receipt, signature: await findSaleSignature(receipt) };
+  const transaction = await findSaleSignature(receipt).catch(() => null);
+  return {
+    receipt,
+    signature: transaction?.signature ?? null,
+    occurredAtUnix: transaction?.occurredAtUnix ?? receipt.executedAt,
+  };
 }
 
 async function findSaleSignature(
   receipt: PublicSettlementReceipt,
-): Promise<string | null> {
+): Promise<{ signature: string; occurredAtUnix: string | null } | null> {
   const env = getEnvironment();
   const rpc = createSolanaRpc(env.SOLANA_RPC_URL);
   const signatures = await rpc
@@ -113,7 +158,11 @@ async function findSaleSignature(
         return discriminator.every((value, index) => data[index] === value);
       },
     );
-    if (found) return candidate.signature;
+    if (found)
+      return {
+        signature: candidate.signature,
+        occurredAtUnix: transaction.blockTime?.toString() ?? null,
+      };
   }
   return null;
 }

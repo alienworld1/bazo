@@ -54,14 +54,25 @@ export default async function BuyRequestPage({
     ['Private terms', 'Sealed'],
     [
       'Quote in escrow',
-      `${formatDisplayAmount(request.escrowRawAmount, quoteBalance.decimals)} ${market.quoteSymbol} (${request.escrowRawAmount} raw)`,
+      `${formatDisplayAmount(request.escrowRawAmount, quoteBalance.decimals)} ${market.quoteSymbol}`,
     ],
-    ['Quote spent', `${request.spentQuoteAmount} raw`],
-    ['Quote refundable', `${request.refundableQuoteAmount} raw`],
+    [
+      'Quote spent',
+      `${formatDisplayAmount(request.spentQuoteAmount, quoteBalance.decimals)} ${market.quoteSymbol}`,
+    ],
+    [
+      'Quote refundable',
+      `${formatDisplayAmount(request.refundableQuoteAmount, quoteBalance.decimals)} ${market.quoteSymbol}`,
+    ],
     [
       'Request expires',
       new Date(Number(request.expiresAt) * 1_000).toLocaleString(),
     ],
+  ];
+  const evidence = [
+    ['Escrow raw amount', request.escrowRawAmount],
+    ['Spent raw amount', request.spentQuoteAmount],
+    ['Refundable raw amount', request.refundableQuoteAmount],
     ['Stock recipient', request.recipient],
     ['Commitment fingerprint', request.commitmentFingerprint],
     ['Buyer', request.buyer],
@@ -143,6 +154,19 @@ export default async function BuyRequestPage({
         <div className="mt-4">
           <RefreshSaleStatus />
         </div>
+        <details className="mt-8 border-t border-line-default pt-5 text-sm">
+          <summary className="min-h-11 cursor-pointer py-3 text-text-primary">
+            View technical details
+          </summary>
+          <dl className="mt-3 space-y-3 break-all font-mono text-xs text-text-secondary">
+            {evidence.map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-text-tertiary">{label}</dt>
+                <dd className="mt-1">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
         <Link
           href={`/markets/${market.id}`}
           className="mt-6 inline-flex min-h-11 items-center border border-line-default px-4 text-sm text-text-primary"

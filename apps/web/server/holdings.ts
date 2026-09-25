@@ -95,6 +95,18 @@ export async function readSupportedHolding(
   };
 }
 
+export async function readStockMultiplier(market: MarketConfig): Promise<string> {
+  const rpc = createSolanaRpc(getEnvironment().SOLANA_RPC_URL);
+  const mint = await fetchMint(rpc, address(market.stockMint));
+  if (mint.programAddress !== address(market.stockTokenProgram) || mint.data.decimals !== market.tokenDecimals)
+    throw new Error('stock mint mismatch');
+  const extensions = isSome(mint.data.extensions) ? mint.data.extensions.value : [];
+  if (extensions.some(extension => !market.supportedStockExtensions.includes(extension.__kind)))
+    throw new Error('unsupported_mint_extension');
+  const scaled = extensions.find(extension => extension.__kind === 'ScaledUiAmountConfig');
+  return scaled?.__kind === 'ScaledUiAmountConfig' ? String(scaled.multiplier) : '1';
+}
+
 export async function readSpendableQuoteBalance(
   market: MarketConfig,
   owner: string,

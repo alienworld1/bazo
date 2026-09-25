@@ -7,14 +7,16 @@ import { CurrentStageDelivery } from '@/features/sell-plans/current-stage-delive
 import { PlanRecoveryPanel } from '@/features/sell-plans/recovery/plan-recovery-panel';
 import { readRelevantBatch } from '@/server/batches';
 import { readPublicSellPlan } from '@/server/plans';
-import { readSaleForPlan } from '@/server/settlements';
+import { readSalesForPlan } from '@/server/settlements';
 import { getEnabledMarkets } from '@/server/market-registry';
 import { getEnvironment } from '@/server/env';
 import { ClaimPlanProceeds } from '@/features/sell-plans/claim-plan-proceeds';
-import { SaleReceipt } from '@/features/sell-plans/sale-receipt';
+import { PlanStageSequence } from '@/features/sell-plans/plan-stage-sequence';
+import { PlanPosition } from '@/features/sell-plans/plan-position';
 import { RefreshSaleStatus } from '@/components/refresh-sale-status';
 import { WithdrawRemainingStock } from '@/features/sell-plans/withdraw-remaining-stock';
 import { readChainUnixTimestamp } from '@/server/buy-requests';
+import { readStockMultiplier } from '@/server/holdings';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,13 +35,11 @@ export default async function SellPlanDetailPage({
   const { reconciliation, recovery, signature } = await searchParams;
   const plan = await readPublicSellPlan(planAddress);
   if (!plan) notFound();
-  const [batch, sale, chainNow] = await Promise.all([
+  const [batch, stages, chainNow] = await Promise.all([
     plan.status === 'active'
       ? readRelevantBatch(plan.market)
       : Promise.resolve(null),
-    plan.currentStageIndex > 0
-      ? readSaleForPlan(plan.address, plan.currentStageIndex - 1)
-      : Promise.resolve(null),
+    readSalesForPlan(plan),
     readChainUnixTimestamp(),
   ]);
   const planIsActive =
@@ -56,6 +56,7 @@ export default async function SellPlanDetailPage({
   );
   const claimable =
     BigInt(plan.accruedQuoteAmount) - BigInt(plan.claimedQuoteAmount);
+  const multiplier = market ? await readStockMultiplier(market) : '1';
 
   return (
     <AppShell>
@@ -96,34 +97,23 @@ export default async function SellPlanDetailPage({
             </p>
           </div>
         ) : null}
+        {market ? (
+          <PlanPosition plan={plan} market={market} multiplier={multiplier} />
+        ) : (
+          <p role="alert" className="mt-8 text-warning">
+            We couldn&apos;t verify this Market right now.
+          </p>
+        )}
         <dl className="mt-8 space-y-4 text-sm">
-          {planIsActive ? (
-            <PlanFact
-              label="Active Stage"
-              value={`Stage ${plan.currentStageIndex + 1}`}
-            />
-          ) : null}
-          <PlanFact
-            label="Remaining"
-            value={`${plan.remainingRawInventory} raw`}
-          />
-          <PlanFact
-            label="Total committed"
-            value={`${plan.initialRawInventory} raw`}
-          />
-          {planIsActive ? (
-            <PlanFact label="Future path" value="SEALED" />
-          ) : null}
           <PlanFact label="Created" value={plan.createdAt} />
           <PlanFact label="Plan ends" value={plan.expiresAt} />
         </dl>
-        {sale ? (
-          <SaleReceipt sale={sale} />
-        ) : (
-          <p className="mt-8 text-sm text-text-secondary">
-            No sale has completed for this Stage.
-          </p>
-        )}
+        <PlanStageSequence
+          stages={stages}
+          currentStageIndex={plan.currentStageIndex}
+          active={planIsActive}
+          marketId={market?.id}
+        />
         <div className="mt-4">
           <RefreshSaleStatus />
         </div>
@@ -159,7 +149,12 @@ export default async function SellPlanDetailPage({
           />
         ) : null}
         {planIsActive ? (
-          <OwnerStagePreview plan={plan.address} owner={plan.owner} />
+          <OwnerStagePreview
+            plan={plan.address}
+            owner={plan.owner}
+            currentStageIndex={plan.currentStageIndex}
+            currentCommitment={plan.currentCommitment}
+          />
         ) : null}
         {planIsActive ? (
           <PlanRecoveryPanel plan={plan.address} owner={plan.owner} />
@@ -227,7 +222,7 @@ export default async function SellPlanDetailPage({
           </Link>
           <Link
             className="min-h-11 text-sm text-text-primary underline"
-            href="/markets"
+            href={market ? `/markets/${market.id}` : '/markets'}
           >
             View market
           </Link>
