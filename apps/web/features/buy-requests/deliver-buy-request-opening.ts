@@ -11,5 +11,6 @@ export async function deliverBuyRequestOpening(
     body: JSON.stringify(serializeOpening(opening)),
     cache: 'no-store',
   });
+  if (response.status === 503) throw new Error('matching-service-unavailable');
   if (!response.ok) throw new Error('delivery failed');
 }

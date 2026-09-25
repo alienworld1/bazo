@@ -73,10 +73,13 @@ export function BuyRequestDelivery({
       if (!opening) throw new Error('opening unavailable');
       await deliverBuyRequestOpening(opening);
       setStatus('delivered');
-    } catch {
+    } catch (cause) {
       setStatus('needed');
       setError(
-        'Matching details need attention. Retry delivery from this browser while your opening is available.',
+        cause instanceof Error &&
+          cause.message === 'matching-service-unavailable'
+          ? 'Matching is temporarily unavailable. Your quote remains in the request. Try providing details again later.'
+          : 'Matching details need attention. Retry delivery from this browser while your opening is available.',
       );
     }
   };

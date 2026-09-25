@@ -77,12 +77,17 @@ export function CurrentStageDelivery({
         body: JSON.stringify(serializeOpening(opening)),
         cache: 'no-store',
       });
+      if (response.status === 503)
+        throw new Error('matching-service-unavailable');
       if (!response.ok) throw new Error('delivery failed');
       setStatus('delivered');
-    } catch {
+    } catch (cause) {
       setStatus('idle');
       setError(
-        'Matching details need attention. Restore the current Plan backup or retry delivery.',
+        cause instanceof Error &&
+          cause.message === 'matching-service-unavailable'
+          ? 'Matching is temporarily unavailable. Your stock remains in the Plan. Try providing details again later.'
+          : 'Matching details need attention. Restore the current Plan backup or retry delivery.',
       );
     }
   };
