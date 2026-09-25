@@ -8,29 +8,59 @@ const DEVNET_RPC_URL = process.env.SOLANA_RPC_URL;
 if (process.env.SOLANA_NETWORK !== 'devnet' || !DEVNET_RPC_URL)
   throw new Error('Configured Devnet RPC is required');
 const PROGRAM_ID = new anchor.web3.PublicKey(idl.address);
-const MARKET = new anchor.web3.PublicKey(
-  'H83inusRWiShJZsVT3rTFXafo1wSCgb5HKTJEsM2LRgu',
+const STOCK_MINT = new anchor.web3.PublicKey(required('BAZO_STOCK_MINT'));
+const QUOTE_MINT = new anchor.web3.PublicKey(required('BAZO_QUOTE_MINT'));
+const STOCK_TOKEN_PROGRAM_ID = new anchor.web3.PublicKey(
+  required('BAZO_STOCK_TOKEN_PROGRAM'),
 );
-const STOCK_MINT = new anchor.web3.PublicKey(
-  '3bEb8QPW7edXzvcm1udGcRjr6NfpbvyXrwAdK5upXUTQ',
+const QUOTE_TOKEN_PROGRAM_ID = new anchor.web3.PublicKey(
+  required('BAZO_QUOTE_TOKEN_PROGRAM'),
 );
-const QUOTE_MINT = new anchor.web3.PublicKey(
-  'EDJpD3ngqiy5ZhWZjDNYZDzCuTvkW42ea72X6TAuDeL3',
+const ASSOCIATED_TOKEN_PROGRAM_ID = new anchor.web3.PublicKey(
+  'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
 );
-const STOCK_SOURCE = new anchor.web3.PublicKey(
-  '6qxP3oSzZRfAC3eekfVF8ptXh392nsSsPfLZQszMnDRJ',
+const [MARKET] = anchor.web3.PublicKey.findProgramAddressSync(
+  [Buffer.from('market'), STOCK_MINT.toBuffer(), QUOTE_MINT.toBuffer()],
+  PROGRAM_ID,
 );
-const TOKEN_2022_PROGRAM_ID = new anchor.web3.PublicKey(
-  'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
-);
+
+function required(key) {
+  const value = process.env[key];
+  if (!value) throw new Error(`Missing ${key}`);
+  return value;
+}
 
 async function main() {
   const provider = anchor.AnchorProvider.local(DEVNET_RPC_URL);
   const program = new anchor.Program(idl, provider);
+  if (PROGRAM_ID.toBase58() !== required('BAZO_PROGRAM_ID'))
+    throw new Error('Built program ID differs from configured deployment');
+  const marketState = await program.account.market.fetch(MARKET);
+  if (
+    !marketState.stockMint.equals(STOCK_MINT) ||
+    !marketState.quoteMint.equals(QUOTE_MINT) ||
+    !marketState.stockTokenProgram.equals(STOCK_TOKEN_PROGRAM_ID) ||
+    !marketState.quoteTokenProgram.equals(QUOTE_TOKEN_PROGRAM_ID) ||
+    !marketState.enabled
+  )
+    throw new Error('Configured Market does not match deployed accounts');
+  const [STOCK_SOURCE] = anchor.web3.PublicKey.findProgramAddressSync(
+    [
+      provider.wallet.publicKey.toBuffer(),
+      STOCK_TOKEN_PROGRAM_ID.toBuffer(),
+      STOCK_MINT.toBuffer(),
+    ],
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  );
   const stockBefore = await tokenAmount(provider, STOCK_SOURCE);
   const nonce = randomU64();
   const [plan] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from('plan'), u16(1), provider.wallet.publicKey.toBuffer(), u64(nonce)],
+    [
+      Buffer.from('plan'),
+      u16(1),
+      provider.wallet.publicKey.toBuffer(),
+      u64(nonce),
+    ],
     PROGRAM_ID,
   );
   const [stockVault] = anchor.web3.PublicKey.findProgramAddressSync(
@@ -55,8 +85,8 @@ async function main() {
       market: MARKET,
       stockMint: STOCK_MINT,
       quoteMint: QUOTE_MINT,
-      stockTokenProgram: TOKEN_2022_PROGRAM_ID,
-      quoteTokenProgram: TOKEN_2022_PROGRAM_ID,
+      stockTokenProgram: STOCK_TOKEN_PROGRAM_ID,
+      quoteTokenProgram: QUOTE_TOKEN_PROGRAM_ID,
       ownerStockAccount: STOCK_SOURCE,
       plan,
       stockVault,
@@ -83,20 +113,26 @@ async function main() {
       });
     const nonOwner = anchor.web3.Keypair.generate();
     await expectSimulationFailure(
-      program.methods.cancelPlan().accountsPartial({
-        owner: nonOwner.publicKey,
-        plan,
-        market: MARKET,
-        reservation,
-      }).signers([nonOwner]),
+      program.methods
+        .cancelPlan()
+        .accountsPartial({
+          owner: nonOwner.publicKey,
+          plan,
+          market: MARKET,
+          reservation,
+        })
+        .signers([nonOwner]),
       'non-owner Plan cancellation',
     );
     await cancel().simulate();
     const cancelSignature = await cancel().rpc();
     const canceled = await program.account.plan.fetch(plan);
-    if (canceled.status !== 2 || !canceled.soldRawInventory.isZero() ||
-        !canceled.quoteProceedsAccrued.isZero() ||
-        !canceled.remainingRawInventory.eq(new anchor.BN(10_000_000)))
+    if (
+      canceled.status !== 2 ||
+      !canceled.soldRawInventory.isZero() ||
+      !canceled.quoteProceedsAccrued.isZero() ||
+      !canceled.remainingRawInventory.eq(new anchor.BN(10_000_000))
+    )
       throw new Error('Plan cancellation accounting mismatch');
     await expectSimulationFailure(cancel(), 'duplicate Plan cancellation');
     console.log(`Plan canceled: ${cancelSignature}`);
@@ -107,7 +143,7 @@ async function main() {
         plan,
         market: MARKET,
         stockMint: STOCK_MINT,
-        stockTokenProgram: TOKEN_2022_PROGRAM_ID,
+        stockTokenProgram: STOCK_TOKEN_PROGRAM_ID,
         stockVault,
         ownerStockDestination: STOCK_SOURCE,
         reservation,
@@ -115,9 +151,11 @@ async function main() {
     await withdraw().simulate();
     const returnSignature = await withdraw().rpc();
     const returned = await program.account.plan.fetch(plan);
-    if (!returned.remainingRawInventory.isZero() ||
-        await tokenAmount(provider, stockVault) !== 0n ||
-        await tokenAmount(provider, STOCK_SOURCE) !== stockBefore)
+    if (
+      !returned.remainingRawInventory.isZero() ||
+      (await tokenAmount(provider, stockVault)) !== 0n ||
+      (await tokenAmount(provider, STOCK_SOURCE)) !== stockBefore
+    )
       throw new Error('Stock return accounting mismatch');
     await expectSimulationFailure(withdraw(), 'duplicate stock return');
     console.log(`Stock returned: ${returnSignature}`);
@@ -126,8 +164,12 @@ async function main() {
 
 async function tokenAmount(provider, tokenAccount) {
   return BigInt(
-    (await provider.connection.getTokenAccountBalance(tokenAccount, 'confirmed'))
-      .value.amount,
+    (
+      await provider.connection.getTokenAccountBalance(
+        tokenAccount,
+        'confirmed',
+      )
+    ).value.amount,
   );
 }
 
@@ -143,7 +185,12 @@ async function expectSimulationFailure(operation, label) {
 
 async function buildTwoStageCommitment(plan, market) {
   let next = await sha256(
-    Buffer.concat([Buffer.from('BAZO_STAGE_TERMINAL_V1'), Buffer.of(1), plan.toBuffer(), market.toBuffer()]),
+    Buffer.concat([
+      Buffer.from('BAZO_STAGE_TERMINAL_V1'),
+      Buffer.of(1),
+      plan.toBuffer(),
+      market.toBuffer(),
+    ]),
   );
   for (let index = 1; index >= 0; index -= 1) {
     const rawQuantity = 5_000_000n;

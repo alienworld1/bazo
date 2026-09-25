@@ -32,24 +32,24 @@ import {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const rpcUrl = required('SOLANA_RPC_URL');
 const coordinatorSecret = required('BAZO_COORDINATOR_SECRET');
-const coordinatorUrl = new URL('http://127.0.0.1:3145/');
+const coordinatorUrl = new URL(
+  process.env.BAZO_COORDINATOR_URL ?? 'http://127.0.0.1:3145/',
+);
 const programId = new anchor.web3.PublicKey(required('BAZO_PROGRAM_ID'));
 const stockMint = new anchor.web3.PublicKey(required('BAZO_STOCK_MINT'));
 const quoteMint = new anchor.web3.PublicKey(required('BAZO_QUOTE_MINT'));
 const tokenProgram = new anchor.web3.PublicKey(
-  'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+  required('BAZO_STOCK_TOKEN_PROGRAM'),
+);
+const quoteTokenProgram = new anchor.web3.PublicKey(
+  required('BAZO_QUOTE_TOKEN_PROGRAM'),
 );
 const associatedTokenProgram = new anchor.web3.PublicKey(
   'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
 );
-const market = new anchor.web3.PublicKey(
-  'H83inusRWiShJZsVT3rTFXafo1wSCgb5HKTJEsM2LRgu',
-);
-const buyerQuote = new anchor.web3.PublicKey(
-  'ACFropKYtyPiD1amyb4Z4hrTDYUyWTMVFinpfvq9a3Qr',
-);
-const buyerStock = new anchor.web3.PublicKey(
-  '6qxP3oSzZRfAC3eekfVF8ptXh392nsSsPfLZQszMnDRJ',
+const [market] = anchor.web3.PublicKey.findProgramAddressSync(
+  [Buffer.from('market'), stockMint.toBuffer(), quoteMint.toBuffer()],
+  programId,
 );
 const provider = anchor.AnchorProvider.local(rpcUrl);
 const program = new anchor.Program(
@@ -59,6 +59,12 @@ const program = new anchor.Program(
 const owner = anchor.web3.Keypair.fromSecretKey(
   Uint8Array.from(JSON.parse(readFileSync(required('ANCHOR_WALLET'), 'utf8'))),
 );
+const buyerQuote = associatedAddress(
+  owner.publicKey,
+  quoteMint,
+  quoteTokenProgram,
+);
+const buyerStock = associatedAddress(owner.publicKey, stockMint, tokenProgram);
 const qaRecoveryRoot = resolve(root, 'target/devnet-qa');
 mkdirSync(qaRecoveryRoot, { recursive: true, mode: 0o700 });
 chmodSync(qaRecoveryRoot, 0o700);
@@ -489,7 +495,7 @@ async function createPlan() {
       stockMint,
       quoteMint,
       stockTokenProgram: tokenProgram,
-      quoteTokenProgram: tokenProgram,
+      quoteTokenProgram,
       ownerStockAccount: associatedAddress(owner.publicKey),
       plan,
       stockVault,
@@ -546,7 +552,7 @@ async function createRequest(targetRawQuantity, maxPremiumBps) {
       stockMint,
       quoteMint,
       stockTokenProgram: tokenProgram,
-      quoteTokenProgram: tokenProgram,
+      quoteTokenProgram,
       buyerQuoteAccount: buyerQuote,
       recipientStockAccount: buyerStock,
       request,
@@ -772,7 +778,7 @@ async function cancelRequest(entry) {
       request: entry.request,
       market,
       quoteMint,
-      quoteTokenProgram: tokenProgram,
+      quoteTokenProgram,
       escrow: entry.escrow,
       buyerQuoteDestination: buyerQuote,
     })
@@ -810,9 +816,13 @@ async function returnTemporarySol() {
   }
 }
 
-function associatedAddress(wallet) {
+function associatedAddress(
+  wallet,
+  mint = stockMint,
+  mintProgram = tokenProgram,
+) {
   return anchor.web3.PublicKey.findProgramAddressSync(
-    [wallet.toBuffer(), tokenProgram.toBuffer(), stockMint.toBuffer()],
+    [wallet.toBuffer(), mintProgram.toBuffer(), mint.toBuffer()],
     associatedTokenProgram,
   )[0];
 }

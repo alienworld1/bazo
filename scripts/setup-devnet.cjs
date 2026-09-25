@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
 const anchor = require('@anchor-lang/core');
-const { readFileSync } = require('node:fs');
+const { existsSync, readFileSync } = require('node:fs');
+const { resolve } = require('node:path');
 const idl = require('../target/idl/bazo.json');
+const UPGRADEABLE_LOADER = new anchor.web3.PublicKey(
+  'BPFLoaderUpgradeab1e11111111111111111111111',
+);
 
 const DEVNET_RPC_URL = required('SOLANA_RPC_URL');
 const STOCK_MINT = new anchor.web3.PublicKey(required('BAZO_STOCK_MINT'));
@@ -29,6 +33,63 @@ async function main() {
   const program = new anchor.Program(idl, provider);
   if (program.programId.toBase58() !== required('BAZO_PROGRAM_ID'))
     throw new Error('Built program ID differs from configured deployment');
+  const deployedProgram = await provider.connection.getAccountInfo(
+    program.programId,
+    'confirmed',
+  );
+  if (
+    !deployedProgram?.executable ||
+    !deployedProgram.owner.equals(UPGRADEABLE_LOADER)
+  )
+    throw new Error('Configured program is not a deployed upgradeable program');
+  if (
+    deployedProgram.data.length !== 36 ||
+    deployedProgram.data.readUInt32LE(0) !== 2
+  )
+    throw new Error(
+      'Deployed program has an invalid upgradeable loader account',
+    );
+  const programDataAddress = new anchor.web3.PublicKey(
+    deployedProgram.data.subarray(4, 36),
+  );
+  const programData = await provider.connection.getAccountInfo(
+    programDataAddress,
+    'confirmed',
+  );
+  if (
+    !programData?.owner.equals(UPGRADEABLE_LOADER) ||
+    programData.data.length < 45 ||
+    programData.data.readUInt32LE(0) !== 3 ||
+    ![0, 1].includes(programData.data[12])
+  )
+    throw new Error('Program data or upgrade authority could not be verified');
+  const upgradeAuthority =
+    programData.data[12] === 1
+      ? new anchor.web3.PublicKey(programData.data.subarray(13, 45)).toBase58()
+      : 'none';
+  const binaryPath = resolve(__dirname, '../target/deploy/bazo.so');
+  if (!existsSync(binaryPath))
+    throw new Error('Build the program before checking deployment');
+  const localBinary = readFileSync(binaryPath);
+  const deployedBinary = programData.data.subarray(45);
+  if (
+    deployedBinary.length < localBinary.length ||
+    !deployedBinary.subarray(0, localBinary.length).equals(localBinary) ||
+    deployedBinary.subarray(localBinary.length).some(byte => byte !== 0)
+  )
+    throw new Error(
+      'Deployed program bytes differ from the local build; deploy and verify before setup',
+    );
+  for (const [label, mint, tokenProgram] of [
+    ['stock', STOCK_MINT, STOCK_TOKEN_PROGRAM_ID],
+    ['quote', QUOTE_MINT, QUOTE_TOKEN_PROGRAM_ID],
+  ]) {
+    const account = await provider.connection.getAccountInfo(mint, 'confirmed');
+    if (!account || !account.owner.equals(tokenProgram))
+      throw new Error(
+        `Configured ${label} mint is missing or owned by another token program`,
+      );
+  }
   const baseAccounts = {
     authority: provider.wallet.publicKey,
     stockMint: STOCK_MINT,
@@ -69,30 +130,32 @@ async function main() {
     .accountsPartial(marketBaseAccounts)
     .pubkeys();
 
-  if (
-    !(await provider.connection.getAccountInfo(protocolAccounts.protocolConfig))
-  ) {
-    if (checkOnly) process.stdout.write('Protocol needs initialization.\n');
-    else {
-      const signature = await program.methods.initializeProtocol().rpc();
-      process.stdout.write(`Protocol initialized: ${signature}\n`);
-    }
-  } else {
-    process.stdout.write('Protocol configuration already exists.\n');
+  const protocolInfo = await provider.connection.getAccountInfo(
+    protocolAccounts.protocolConfig,
+    'confirmed',
+  );
+  if (protocolInfo) {
+    const state = await program.account.protocolConfig.fetch(
+      protocolAccounts.protocolConfig,
+    );
+    if (
+      state.version !== 1 ||
+      !state.authority.equals(provider.wallet.publicKey)
+    )
+      throw new Error(
+        'Existing protocol authority or version differs from configured wallet',
+      );
   }
 
-  if (!(await provider.connection.getAccountInfo(marketAccounts.market))) {
-    if (checkOnly) process.stdout.write('Market needs creation.\n');
-    else {
-      const signature = await program.methods
-        .createMarket(marketArgs)
-        .accountsPartial(marketBaseAccounts)
-        .rpc();
-      process.stdout.write(`Market created: ${signature}\n`);
-    }
-  } else {
+  const marketInfo = await provider.connection.getAccountInfo(
+    marketAccounts.market,
+    'confirmed',
+  );
+  if (marketInfo) {
     const state = await program.account.market.fetch(marketAccounts.market);
     if (
+      state.version !== 1 ||
+      !state.authority.equals(provider.wallet.publicKey) ||
       !state.pythFeedId.eq(feedId) ||
       state.allowedSessionMask !== allowedSessionMask ||
       state.maxReferenceAgeSeconds !== maximumAgeSeconds ||
@@ -101,16 +164,10 @@ async function main() {
       !state.quoteMint.equals(QUOTE_MINT) ||
       !state.stockTokenProgram.equals(STOCK_TOKEN_PROGRAM_ID) ||
       !state.quoteTokenProgram.equals(QUOTE_TOKEN_PROGRAM_ID) ||
+      state.supportedStockExtensions !== 1 ||
       !state.enabled
     )
       throw new Error('Existing Market differs from requested configuration');
-    process.stdout.write('Market already exists.\n');
-    if (checkOnly) {
-      process.stdout.write(`Market authority: ${state.authority.toBase58()}\n`);
-      process.stdout.write(`Check wallet matches authority: ${state.authority.equals(provider.wallet.publicKey)}\n`);
-    } else if (!state.authority.equals(provider.wallet.publicKey)) {
-      throw new Error('ANCHOR_WALLET does not own the configured Market');
-    }
   }
 
   const windowSeconds = Number(process.env.BAZO_BATCH_DURATION_SECONDS ?? '45');
@@ -132,33 +189,17 @@ async function main() {
     policy,
     'confirmed',
   );
-  if (!existingPolicy) {
-    if (checkOnly) process.stdout.write('Batch policy needs initialization.\n');
-    else {
-      const operation = program.methods
-        .initializeBatchPolicy(
-          new anchor.BN(windowSeconds),
-          new anchor.BN(lockSeconds),
-        )
-        .accountsPartial({
-          authority: provider.wallet.publicKey,
-          market: marketAccounts.market,
-          policy,
-        });
-      await operation.simulate();
-      const signature = await operation.rpc();
-      process.stdout.write(`Batch policy created: ${signature}\n`);
-    }
-  } else {
+  if (existingPolicy) {
     const policyState = await program.account.batchPolicy.fetch(policy);
     if (
+      policyState.version !== 1 ||
+      !policyState.market.equals(marketAccounts.market) ||
       Number(policyState.windowSeconds) !== windowSeconds ||
       Number(policyState.lockSeconds) !== lockSeconds
     )
       throw new Error(
         'Existing Batch policy differs from requested configuration',
       );
-    process.stdout.write('Batch policy already exists.\n');
   }
 
   const minimumPublisherCount = Number(process.env.BAZO_MIN_PUBLISHER_COUNT);
@@ -195,10 +236,60 @@ async function main() {
     settlementPolicy,
     'confirmed',
   );
-  if (!existingSettlementPolicy) {
-    if (checkOnly)
-      process.stdout.write('Settlement policy needs initialization.\n');
-    else {
+  if (existingSettlementPolicy) {
+    const state =
+      await program.account.settlementPolicy.fetch(settlementPolicy);
+    if (
+      state.version !== 1 ||
+      !state.market.equals(marketAccounts.market) ||
+      state.minimumPublisherCount !== minimumPublisherCount ||
+      state.maximumConfidenceRatioBps !== maximumConfidenceRatioBps ||
+      !state.reservationAuthority.equals(reservationAuthority)
+    )
+      throw new Error(
+        'Existing settlement policy differs from requested configuration',
+      );
+  }
+
+  if (checkOnly) {
+    for (const [label, exists] of [
+      ['Protocol', protocolInfo],
+      ['Market', marketInfo],
+      ['Batch policy', existingPolicy],
+      ['Settlement policy', existingSettlementPolicy],
+    ])
+      process.stdout.write(
+        `${label}: ${exists ? 'verified' : 'needs initialization'}\n`,
+      );
+  } else {
+    if (!protocolInfo) {
+      const signature = await program.methods.initializeProtocol().rpc();
+      process.stdout.write(`Protocol initialized: ${signature}\n`);
+    }
+    if (!marketInfo) {
+      const operation = program.methods
+        .createMarket(marketArgs)
+        .accountsPartial(marketBaseAccounts);
+      await operation.simulate();
+      const signature = await operation.rpc();
+      process.stdout.write(`Market created: ${signature}\n`);
+    }
+    if (!existingPolicy) {
+      const operation = program.methods
+        .initializeBatchPolicy(
+          new anchor.BN(windowSeconds),
+          new anchor.BN(lockSeconds),
+        )
+        .accountsPartial({
+          authority: provider.wallet.publicKey,
+          market: marketAccounts.market,
+          policy,
+        });
+      await operation.simulate();
+      const signature = await operation.rpc();
+      process.stdout.write(`Batch policy created: ${signature}\n`);
+    }
+    if (!existingSettlementPolicy) {
       const operation = program.methods
         .initializeSettlementPolicy(
           minimumPublisherCount,
@@ -214,18 +305,6 @@ async function main() {
       const signature = await operation.rpc();
       process.stdout.write(`Settlement policy created: ${signature}\n`);
     }
-  } else {
-    const state =
-      await program.account.settlementPolicy.fetch(settlementPolicy);
-    if (
-      state.minimumPublisherCount !== minimumPublisherCount ||
-      state.maximumConfidenceRatioBps !== maximumConfidenceRatioBps ||
-      !state.reservationAuthority.equals(reservationAuthority)
-    )
-      throw new Error(
-        'Existing settlement policy differs from requested configuration',
-      );
-    process.stdout.write('Settlement policy already exists.\n');
   }
 
   process.stdout.write(
@@ -234,6 +313,10 @@ async function main() {
   process.stdout.write(`Market: ${marketAccounts.market.toBase58()}\n`);
   process.stdout.write(`Batch policy: ${policy.toBase58()}\n`);
   process.stdout.write(`Settlement policy: ${settlementPolicy.toBase58()}\n`);
+  process.stdout.write(`Program upgrade authority: ${upgradeAuthority}\n`);
+  process.stdout.write(
+    `Market authority: ${provider.wallet.publicKey.toBase58()}\n`,
+  );
 }
 
 main().catch(error => {
