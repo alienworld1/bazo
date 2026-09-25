@@ -1,5 +1,7 @@
 # Bazo
 
+For clean-clone deployment, release checks, verified Devnet authority disclosure, and the holder/buyer QA path, see the [Devnet release runbook](docs/release-runbook.md).
+
 ## Local setup
 
 1. Copy `.env.example` to `.env.local` in the workspace root. The web app loads

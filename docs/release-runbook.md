@@ -1,0 +1,29 @@
+# Devnet release runbook
+
+## Prerequisites
+
+- Node.js 20.18 or newer, pnpm 12.4.2, Rust, Solana CLI, Anchor CLI, and a funded disposable Devnet authority wallet.
+- A deployed Bazo program built from this checkout. Keep the deploy keypair, fee payer keypair, and `.env` outside Git. Never use a production wallet for fixtures.
+- A supported Token-2022 stock mint with ScaledUiAmountConfig, a compatible quote mint, and a Pyth Pro feed for the underlying stock. The quote wallet must hold enough test quote before creating a Buy Request.
+- A server-side Pyth Pro API key and independent random values of at least 32 characters for `BAZO_COORDINATOR_SECRET` and `BAZO_AUTH_SESSION_SECRET`.
+
+## Configure and verify
+
+1. Run `pnpm install` and copy `.env.example` to `.env`. Replace every illustrative value with the identity of the _same_ Devnet Market. Set `ANCHOR_WALLET` and `BAZO_COORDINATOR_FEE_PAYER_PATH` to local keypair paths, `BAZO_PRIVATE_BLOB_DIRECTORY` to a private writable directory, and `BAZO_WEB_BASE_URL` to the web origin. Keep `.env` and wallet files untracked.
+2. Check the stock and quote mint owners, extensions, decimals, and mint authorities with `solana account <MINT> --url <RPC_URL>` and a Token-2022 decoder. Confirm the feed ID and available channel in the [Pyth Pro feed catalog](https://docs.pyth.network/price-feeds/pro/price-feed-ids). Pyth's [subscription guide](https://docs.pyth.network/price-feeds/pro/getting-started) documents the server credential and signed stream. Record the actual source and date for the selected identities in the release evidence; `.env.example` is illustrative.
+3. Build with `pnpm build:program`. Deploy with the Solana CLI using the configured upgrade authority, then record the deployment transaction and `solana program show <PROGRAM_ID> --url <RPC_URL>` output. Run `pnpm setup:devnet -- --check` **before** `pnpm setup:devnet`. The check must say whether the protocol, Market, Batch policy, and settlement policy are verified or need initialization, then print the program upgrade and Market authorities. A mismatch or missing deployed program is a stop condition. Setup never creates a second Market to satisfy a mismatched configuration.
+4. Run `pnpm release:check`. It runs lint, typecheck, web/SDK/coordinator tests, Rust program tests, the production build, the read-only Devnet account check, and a browser bundle scan for the configured Pyth, coordinator, and auth secrets. Each gate must pass. The scanner reports filenames and credential names only; it never prints matching values. Run `node scripts/test-batch-local.cjs` and `node scripts/test-custody-exits-local.cjs` against a configured local validator for account substitution and custody exits.
+
+## Exercise the product
+
+Start `pnpm dev` and `pnpm dev:coordinator` in separate terminals. The coordinator uses the fee payer only for Batch liveness, not settlement custody. With the configured disposable wallet, use Portfolio to claim supported Devnet stock if eligible, or run `pnpm fixture:plan` and `pnpm fixture:buy-request` after funding the wallet's derived quote token account. These fixture commands derive the Market and token accounts from configuration and the wallet; they do not require fixed QA addresses.
+
+Open Markets and confirm a current verified reference. Create a two-Stage Sell Plan, save its encrypted backup, then create a compatible funded Buy Request. Record the Plan, request, vault, and Batch addresses and raw balances. Observe one confirmed settlement and receipt, full current-Stage consumption, the next Stage still sealed, and exact stock and quote movement. Refresh Plan, request, Portfolio, and Activity; values must agree with Solana. Claim proceeds and refund eligible escrow, then repeat the action to confirm no second transfer. Stop the coordinator during a fresh lock; after the onchain deadline, use an owner wallet to release and exit. Try a stale or unavailable oracle update and verify no settlement or balance movement. Reject a wallet approval and confirm there is no submitted-success state.
+
+Run `services/coordinator/devnet-qa.mjs` with a disposable funded authority wallet only after reviewing its transactions. It creates temporary wallets and funded fixtures, restarts the coordinator, requires private opening redelivery, and verifies lock expiry and refund. Recovery files stay in ignored `target/devnet-qa` until those Plans are finished. A local validator is appropriate when a live Pyth feed, access, or assets are unavailable; record live Devnet settlement as **pending** in that case.
+
+## Authority and privacy
+
+On 2026-09-25, a read-only Devnet check verified program `6e35GBMnuKLhWCJe3qmzWuJbN9L6XCTMPvAx5hgXLagb`, Market `H83inusRWiShJZsVT3rTFXafo1wSCgb5HKTJEsM2LRgu`, and Batch and settlement policies. Program upgrade authority and Market authority were both `4Z1WAbsiJTtopLfGvei6CA5ejy5fVxZgtSmmXrTRSPhe`. This is an upgradeable Devnet deployment controlled by that wallet, not immutable governance. The rebuilt program now differs from the deployed bytes, so the preflight correctly stops until the updated binary is deployed and verified. Recheck all identities and authorities before submission: deployment and authorities can change. The test stock's mint authority and the selected Pyth feed identity still require operator verification against live source records; this read-only account check does not prove a live Pyth settlement.
+
+Private Stage openings and backups belong only in owner-controlled recovery files or ciphertext storage. Keep `PYTH_API_KEY`, the coordinator/auth secrets, and keypairs out of the browser, public responses, logs, and version control. Audit any production server logs and public API responses with redacted evidence before submission; the browser scanner does not inspect those runtime surfaces.

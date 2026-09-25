@@ -14,11 +14,12 @@
     "test:sdk": "pnpm --filter web exec vitest run --root ../../packages/sdk",
     "dev:coordinator": "pnpm --filter @bazo/coordinator dev",
     "build": "pnpm --filter web build",
+    "release:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/release-check.cjs",
     "build:program": "NO_DNA=1 anchor build && CARGO_TARGET_DIR=/tmp/bazo-sbf-v2 NO_DNA=1 cargo build-sbf --manifest-path programs/bazo/Cargo.toml --arch v2 --sbf-out-dir target/deploy",
     "format": "prettier --write",
     "setup:devnet": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/setup-devnet.cjs",
-    "fixture:plan": "node scripts/create-devnet-fixture-plan.cjs",
-    "fixture:buy-request": "node scripts/create-devnet-fixture-buy-request.cjs",
+    "fixture:plan": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/create-devnet-fixture-plan.cjs",
+    "fixture:buy-request": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/create-devnet-fixture-buy-request.cjs",
     "test:batch:local": "node scripts/test-batch-local.cjs"
   }
 }
